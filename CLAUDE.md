@@ -1,0 +1,185 @@
+# InkPages - Development Context for Claude
+
+## Project Overview
+
+InkPages is a Firefox extension that provides Safari-like reader mode with paginated, book-style display optimized for e-ink devices (Kindle Scribe, Boox, reMarkable, etc.).
+
+**Repository**: https://github.com/JKourelis/InkPages
+**AMO Listing**: (pending approval, slug: `inkpages-reader` or similar)
+**License**: Apache 2.0
+
+## Architecture Decisions
+
+### In-Page Rendering with Shadow DOM
+- **Decision**: Render reader overlay in the current page using Shadow DOM, NOT in a new tab
+- **Why**:
+  - Back button works naturally (goes to previous page, not through reader history)
+  - Safari-like behavior where reader mode is an overlay
+  - Shadow DOM provides style isolation from the host page
+
+### Manifest V2 (not V3)
+- **Decision**: Use Manifest V2 for Firefox
+- **Why**:
+  - MV3 had issues with temporary add-on loading during development
+  - MV2 is still fully supported on Firefox
+  - Chrome version will need MV3 (see Chrome section below)
+
+### Content Script Auto-Injection
+- **Decision**: Content script loads on ALL pages via manifest `content_scripts`
+- **Why**: Enables "sticky" reader mode - auto-activates on article pages for remembered sites
+
+### Readability Bundling
+- **Decision**: Include Readability.js directly in manifest's `content_scripts` array
+- **Why**:
+  - Original approach used `new Function()` (eval-like) which AMO rejects
+  - Direct inclusion is cleaner and passes AMO validation
+
+## Key Features
+
+1. **True Pagination**: CSS multi-column layout with `translateX` navigation (no scrolling)
+2. **Article Detection**: Heuristics to detect articles vs homepages/listing pages
+3. **Site Memory**: Remembers which origins have reader mode enabled
+4. **Auto-Activation**: On remembered sites, auto-activates only on detected article pages
+5. **Reading Position Memory**: Saves position per URL (last 50 articles)
+6. **Link Handling**: Same-origin links navigate normally, external links open in new tab
+7. **HTML Sanitization**: Strips event handlers, javascript: URLs, scripts, forms, iframes
+8. **Cookie/Embed Filtering**: Removes social media embed placeholders and cookie consent blocks
+
+## Technical Details
+
+### Pagination Engine (content.js)
+```javascript
+// Key approach: measure natural height, calculate pages, use CSS columns
+content.style.width = 'max-content';  // Let browser calculate
+content.style.columnWidth = viewportWidth + 'px';
+content.style.columnGap = columnGap + 'px';
+// Navigate with: content.style.transform = `translateX(-${offset}px)`;
+```
+
+### Article Detection (isArticlePage function)
+- Rejects homepage (path === '/')
+- Checks paragraph density (>2000 chars, >3 substantial paragraphs)
+- Detects listing pages (many short items)
+- Final check: Readability extraction must yield >200 words
+
+### Settings Storage
+- `storage.sync`: User preferences (font, theme, etc.) - syncs across devices
+- `storage.local`: Enabled origins list, reading positions
+
+## AMO Submission Notes
+
+### Required Manifest Fields (as of Nov 2025)
+```json
+"browser_specific_settings": {
+  "gecko": {
+    "id": "{77d4cdb4-ab52-4e89-ba4b-db8a517a085f}",
+    "strict_min_version": "140.0",
+    "data_collection_permissions": {
+      "required": ["none"]
+    }
+  },
+  "gecko_android": {
+    "strict_min_version": "140.0"
+  }
+}
+```
+
+### innerHTML Warnings (Expected)
+AMO shows warnings for innerHTML usage. These are acceptable because:
+- Our code has `sanitizeHTML()` (content.js ~line 219) that strips dangerous content
+- Readability.js warnings are from Mozilla's own library
+
+### Reviewer Notes
+Submitted with notes explaining sanitization approach and that Readability is Mozilla's library.
+
+## Chrome Version (TODO)
+
+Chrome requires Manifest V3. Key changes needed:
+
+1. **Manifest Changes**:
+   - `"manifest_version": 3`
+   - `"action"` instead of `"browser_action"`
+   - `"background": { "service_worker": "..." }` instead of `"scripts"`
+   - Different `"web_accessible_resources"` format
+
+2. **API Changes**:
+   - `chrome.scripting.executeScript()` instead of `chrome.tabs.executeScript()`
+   - Service worker lifecycle handling (no persistent background)
+   - `chrome.action` instead of `chrome.browserAction`
+
+3. **CSP Changes**:
+   - Stricter CSP in MV3
+   - No `eval()` or `new Function()` (we already removed this)
+
+4. **Suggested Approach**:
+   - Create separate `manifest.v3.json`
+   - Minimal code changes needed (mostly API namespace)
+   - Consider build script to generate both versions
+
+## Known Limitations
+
+1. JavaScript-rendered pages may not extract properly (Readability needs DOM content)
+2. Paywalled content cannot be extracted
+3. Complex layouts may have extraction artifacts
+4. Firefox Android: Works but UI accessed via menu, not toolbar
+
+## File Structure
+
+```
+InkPages/
+├── manifest.json           # MV2 manifest for Firefox
+├── LICENSE                 # Apache 2.0
+├── README.md
+├── PRIVACY.md             # Privacy policy
+├── CLAUDE.md              # This file
+├── .gitignore
+├── icons/
+│   ├── icon.svg           # Source SVG
+│   ├── icon-16.png
+│   ├── icon-32.png
+│   ├── icon-48.png
+│   └── icon-128.png
+└── src/
+    ├── background/
+    │   └── background.js   # Toolbar click handling, message passing
+    ├── content/
+    │   └── content.js      # Main logic: extraction, rendering, pagination
+    ├── lib/
+    │   └── Readability.js  # Mozilla Readability (Apache 2.0)
+    └── reader/
+        ├── reader.html     # Reader UI template
+        ├── reader.css      # Styles with theme support
+        └── reader.js       # Original reader (now mostly in content.js)
+```
+
+## Future Improvements
+
+1. **Chrome Extension**: MV3 version (see above)
+2. **Keyboard Shortcuts**: Customizable shortcuts via commands API
+3. **Export Options**: Save article as PDF/EPUB
+4. **Offline Reading**: Cache articles for offline access
+5. **Better Mobile UI**: Optimize settings panel for touch
+6. **Reading Statistics**: Track reading time, articles read
+7. **Annotations**: Highlight and note-taking support
+
+## Build/Release Process
+
+```bash
+# Create release zip
+cd /home/jkourelis/Bioinformatics/InkPages
+rm -f ../InkPages.zip
+zip -r ../InkPages.zip manifest.json README.md PRIVACY.md LICENSE icons/ src/background/ src/content/ src/lib/ src/reader/
+
+# Push to GitHub
+git add -A
+git commit -m "Description"
+git push
+```
+
+## Important Code Locations
+
+- **Sanitization**: `content.js` line ~219 (`sanitizeHTML` function)
+- **Article Detection**: `content.js` line ~73 (`isArticlePage` function)
+- **Pagination Setup**: `content.js` line ~597 (`setupPagination` function)
+- **Cookie/Embed Filtering**: `content.js` line ~275 (`preprocessDOM` function)
+- **Image Scaling Fix**: `reader.css` line ~387 (`#article-content img`)
