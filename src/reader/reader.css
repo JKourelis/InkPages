@@ -386,13 +386,21 @@ body.justify-text #article-content,
 
 #article-content img {
   max-width: 100%;
+  max-height: 70vh;
+  width: auto;
   height: auto;
-  margin: 1.5em 0;
+  object-fit: contain;
+  margin: 1.5em auto;
   border-radius: 4px;
+  display: block;
+  break-inside: avoid;
 }
 
 #article-content figure {
   margin: 1.5em 0;
+  break-inside: avoid;
+  max-height: 80vh;
+  overflow: visible;
 }
 
 #article-content figcaption {
