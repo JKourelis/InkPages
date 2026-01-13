@@ -1,0 +1,23 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect width="128" height="128" rx="24" fill="white"/>
+
+    <path d="M108 32H68V24C68 19.5817 64.4183 16 60 16H20C15.5817 16 12 19.5817 12 24V96C12 100.418 15.5817 104 20 104H60C62.4614 104 64.667 102.888 66.138 101.106C67.2569 102.858 69.1966 104 71.4286 104H111.429C113.882 104 116 102.004 116 99.6923V36.3077C116 33.9963 113.882 32 111.429 32H108Z" fill="black"/>
+
+    <path d="M20 20H60C62.2091 20 64 21.7909 64 24V96C64 98.2091 62.2091 100 60 100H20C17.7909 100 16 98.2091 16 96V24C16 21.7909 17.7909 20 20 20Z" fill="white"/>
+
+    <path d="M112 36H72C70.8954 36 70 36.8954 70 38V100H112V36Z" fill="white"/>
+    <path d="M112 36L100 48H72V36H112Z" fill="#E6E6E6"/>
+    <path d="M112 36V48L100 48L112 36Z" fill="black"/>
+
+    <rect x="24" y="36" width="32" height="6" rx="1" fill="black"/>
+    <rect x="24" y="48" width="32" height="4" rx="1" fill="black"/>
+    <rect x="24" y="56" width="24" height="4" rx="1" fill="black"/>
+    <rect x="24" y="68" width="32" height="4" rx="1" fill="black"/>
+    <rect x="24" y="76" width="32" height="4" rx="1" fill="black"/>
+    <rect x="24" y="84" width="20" height="4" rx="1" fill="black"/>
+
+    <rect x="78" y="56" width="26" height="4" rx="1" fill="black"/>
+    <rect x="78" y="68" width="26" height="4" rx="1" fill="black"/>
+    <rect x="78" y="76" width="26" height="4" rx="1" fill="black"/>
+    <rect x="78" y="84" width="16" height="4" rx="1" fill="black"/>
+</svg>

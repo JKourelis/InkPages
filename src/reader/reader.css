@@ -1,0 +1,875 @@
+/**
+ * InkPages Styles
+ *
+ * TYPOGRAPHY: Styled to match Safari Reader's clean, readable aesthetic.
+ * Safari uses generous margins, comfortable line-height (around 1.6-1.8),
+ * and a clean serif font (typically a system font like Georgia or New York).
+ *
+ * E-INK OPTIMIZATIONS: No animations, minimal repaints, high contrast options.
+ */
+
+/* ============================================
+   CSS Custom Properties (Theme Variables)
+   ============================================ */
+:root, :host {
+  /* Light theme (default - Safari-like) */
+  --bg-color: #ffffff;
+  --text-color: #1d1d1f;
+  --text-secondary: #6e6e73;
+  --header-bg: #f5f5f7;
+  --header-border: #d2d2d7;
+  --link-color: #0066cc;
+  --selection-bg: #b4d5fe;
+
+  /* Typography defaults - Safari-like */
+  --font-family: Georgia, 'Times New Roman', serif;
+  --font-size: 18px;
+  --line-height: 1.8;
+  --page-width: 680px;
+  --page-padding: 24px;
+
+  /* Spacing */
+  --header-height: 48px;
+  --progress-height: 3px;
+}
+
+/* Sepia theme */
+[data-theme="sepia"], :host([data-theme="sepia"]) {
+  --bg-color: #f4ecd8;
+  --text-color: #5b4636;
+  --text-secondary: #7a6652;
+  --header-bg: #e8dcc8;
+  --header-border: #d4c8b4;
+  --link-color: #8b4513;
+  --selection-bg: #d4c4a8;
+}
+
+/* Dark theme */
+[data-theme="dark"], :host([data-theme="dark"]) {
+  --bg-color: #1c1c1e;
+  --text-color: #f5f5f7;
+  --text-secondary: #98989d;
+  --header-bg: #2c2c2e;
+  --header-border: #3a3a3c;
+  --link-color: #64b5f6;
+  --selection-bg: #3a4a5c;
+}
+
+/* E-ink high contrast theme */
+[data-theme="eink"], :host([data-theme="eink"]) {
+  --bg-color: #ffffff;
+  --text-color: #000000;
+  --text-secondary: #333333;
+  --header-bg: #f0f0f0;
+  --header-border: #cccccc;
+  --link-color: #000000;
+  --selection-bg: #cccccc;
+}
+
+/* ============================================
+   Base Reset & Global Styles
+   ============================================ */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: var(--font-size);
+  /* E-ink: Disable smooth scrolling to avoid ghosting */
+  scroll-behavior: auto;
+}
+
+body, #reader-wrapper {
+  font-family: var(--font-family);
+  font-size: var(--font-size);
+  line-height: var(--line-height);
+  color: var(--text-color);
+  background-color: var(--bg-color);
+  min-height: 100vh;
+  overflow: hidden; /* Pagination handles scroll */
+  /* E-ink: Avoid subpixel rendering issues */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+#reader-wrapper {
+  width: 100%;
+  height: 100%;
+}
+
+/* Grayscale mode for e-ink */
+body.grayscale, :host(.grayscale), :host(.grayscale) #reader-wrapper {
+  filter: grayscale(100%);
+}
+
+/* Bold text mode */
+body.bold-text, :host(.bold-text), :host(.bold-text) #reader-wrapper {
+  font-weight: 600;
+}
+
+body.bold-text h1,
+body.bold-text h2,
+body.bold-text h3,
+:host(.bold-text) h1,
+:host(.bold-text) h2,
+:host(.bold-text) h3 {
+  font-weight: 700;
+}
+
+/* Hide images mode */
+body.no-images img,
+body.no-images figure,
+body.no-images picture,
+body.no-images video,
+body.no-images iframe,
+:host(.no-images) img,
+:host(.no-images) figure,
+:host(.no-images) picture,
+:host(.no-images) video,
+:host(.no-images) iframe {
+  display: none !important;
+}
+
+/* Justify text mode */
+body.justify-text #article-content,
+:host(.justify-text) #article-content {
+  text-align: justify;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+}
+
+::selection {
+  background-color: var(--selection-bg);
+}
+
+/* ============================================
+   Header Bar
+   ============================================ */
+#reader-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--header-height);
+  background: var(--header-bg);
+  border-bottom: 1px solid var(--header-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  z-index: 100;
+  /* E-ink: No shadow to avoid gray artifacts */
+}
+
+.header-left,
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.header-right {
+  justify-content: flex-end;
+}
+
+.header-center {
+  flex: 0 0 auto;
+}
+
+.header-btn {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-color);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* E-ink: No hover transitions */
+}
+
+.header-btn:hover {
+  background: var(--header-border);
+}
+
+.header-btn:active {
+  opacity: 0.7;
+}
+
+.site-name {
+  font-size: 14px;
+  color: var(--text-secondary);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-indicator {
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================
+   Main Reading Area
+   ============================================ */
+#reader-main {
+  position: fixed;
+  top: var(--header-height);
+  left: 0;
+  right: 0;
+  bottom: var(--progress-height);
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+}
+
+#article-container {
+  width: 100%;
+  max-width: var(--page-width);
+  height: 100%;
+  padding: var(--page-padding);
+  overflow: hidden;
+  /* Use flexbox so content-viewport can flex to fill remaining space */
+  display: flex;
+  flex-direction: column;
+  /* Ensure tap zones on sides are clickable */
+  position: relative;
+  z-index: 1;
+}
+
+/* ============================================
+   Article Header
+   ============================================ */
+#article-header {
+  flex-shrink: 0; /* Don't shrink the header */
+  margin-bottom: 1.5em;
+  padding-bottom: 1em;
+  border-bottom: 1px solid var(--header-border);
+}
+
+#article-title {
+  font-size: 2em;
+  font-weight: 700;
+  line-height: 1.2;
+  margin-bottom: 0.5em;
+  color: var(--text-color);
+  /* Safari-like: Tight letter spacing on titles */
+  letter-spacing: -0.02em;
+}
+
+#article-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em 1.5em;
+  font-size: 0.9em;
+  color: var(--text-secondary);
+}
+
+#article-byline {
+  font-style: italic;
+}
+
+/* ============================================
+   Content Viewport and Pagination
+
+   KEY POINT: The viewport clips horizontal overflow while allowing
+   the content container to expand with CSS columns. We translate
+   the content container to show different "pages" (column groups).
+
+   Structure:
+   - #content-viewport: Fixed size, clips overflow (the "window")
+   - #article-content: Expands horizontally with columns (the "film strip")
+   ============================================ */
+
+#content-viewport {
+  /* Viewport takes remaining height after article header */
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+#article-content {
+  /* Allow horizontal expansion for columns */
+  /* Width is set to a large value by JS to allow column creation */
+  /* Height is set by JS to match viewport height */
+  column-fill: auto;
+  /* column-width and column-gap set by JS */
+  user-select: text;
+  /* Transform is applied by JS for page navigation */
+}
+
+/* Content typography - Safari-like */
+#article-content p {
+  margin-bottom: 1.2em;
+  orphans: 2;
+  widows: 2;
+}
+
+#article-content h2,
+#article-content h3,
+#article-content h4 {
+  margin-top: 1.5em;
+  margin-bottom: 0.75em;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  break-after: avoid;
+}
+
+#article-content h2 {
+  font-size: 1.5em;
+}
+
+#article-content h3 {
+  font-size: 1.25em;
+}
+
+#article-content h4 {
+  font-size: 1.1em;
+}
+
+#article-content a {
+  color: var(--link-color);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+#article-content blockquote {
+  margin: 1.5em 0;
+  padding-left: 1.5em;
+  border-left: 3px solid var(--header-border);
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+#article-content ul,
+#article-content ol {
+  margin: 1em 0;
+  padding-left: 1.5em;
+}
+
+#article-content li {
+  margin-bottom: 0.5em;
+}
+
+#article-content code {
+  font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9em;
+  background: var(--header-bg);
+  padding: 0.15em 0.4em;
+  border-radius: 3px;
+}
+
+#article-content pre {
+  margin: 1.5em 0;
+  padding: 1em;
+  background: var(--header-bg);
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 0.9em;
+  line-height: 1.5;
+}
+
+#article-content pre code {
+  background: none;
+  padding: 0;
+}
+
+#article-content img {
+  max-width: 100%;
+  height: auto;
+  margin: 1.5em 0;
+  border-radius: 4px;
+}
+
+#article-content figure {
+  margin: 1.5em 0;
+}
+
+#article-content figcaption {
+  font-size: 0.875em;
+  color: var(--text-secondary);
+  text-align: center;
+  margin-top: 0.5em;
+}
+
+#article-content table {
+  width: 100%;
+  margin: 1.5em 0;
+  border-collapse: collapse;
+}
+
+#article-content th,
+#article-content td {
+  padding: 0.75em;
+  border: 1px solid var(--header-border);
+  text-align: left;
+}
+
+#article-content th {
+  background: var(--header-bg);
+  font-weight: 600;
+}
+
+#article-content hr {
+  border: none;
+  border-top: 1px solid var(--header-border);
+  margin: 2em 0;
+}
+
+/* ============================================
+   Tap Zones for Navigation
+   ============================================ */
+.tap-zone {
+  position: fixed;
+  top: var(--header-height);
+  bottom: var(--progress-height);
+  width: 25%;
+  min-width: 80px;
+  cursor: pointer;
+  z-index: 1000;
+  pointer-events: auto;
+  /* Debug: uncomment to see tap zones */
+  /* background: rgba(255, 0, 0, 0.1); */
+}
+
+#tap-zone-prev {
+  left: 0;
+}
+
+#tap-zone-next {
+  right: 0;
+}
+
+/* Visual feedback on tap - subtle for e-ink */
+.tap-zone:active {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="dark"] .tap-zone:active,
+:host([data-theme="dark"]) .tap-zone:active {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* ============================================
+   Progress Bar
+   ============================================ */
+#progress-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: var(--progress-height);
+  background: var(--header-border);
+  z-index: 100;
+}
+
+#progress-fill {
+  height: 100%;
+  background: var(--text-secondary);
+  width: 0%;
+  /* E-ink: No transition animation */
+}
+
+/* ============================================
+   Settings Panel
+   ============================================ */
+#settings-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+}
+
+#settings-panel.hidden {
+  display: none;
+}
+
+#settings-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="dark"] #settings-overlay,
+:host([data-theme="dark"]) #settings-overlay {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+#settings-content {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 320px;
+  max-width: 90vw;
+  background: var(--bg-color);
+  border-left: 1px solid var(--header-border);
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.settings-header h2 {
+  font-size: 1.2em;
+  font-weight: 600;
+}
+
+.close-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-color);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.close-btn:hover {
+  background: var(--header-border);
+}
+
+.setting-group {
+  margin-bottom: 24px;
+}
+
+.setting-label {
+  display: block;
+  font-size: 0.875em;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Font selection buttons */
+.setting-options {
+  display: flex;
+  gap: 8px;
+}
+
+.font-btn {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid var(--header-border);
+  border-radius: 6px;
+  background: var(--bg-color);
+  color: var(--text-color);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.font-btn:hover {
+  background: var(--header-bg);
+}
+
+.font-btn.active {
+  background: var(--text-color);
+  color: var(--bg-color);
+  border-color: var(--text-color);
+}
+
+.font-btn[data-font="serif"] {
+  font-family: Georgia, serif;
+}
+
+.font-btn[data-font="sans-serif"] {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.font-btn[data-font="monospace"] {
+  font-family: 'SF Mono', Menlo, Monaco, monospace;
+}
+
+/* Slider controls */
+.setting-slider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.setting-slider input[type="range"] {
+  flex: 1;
+  height: 4px;
+  background: var(--header-border);
+  border-radius: 2px;
+  outline: none;
+  -webkit-appearance: none;
+}
+
+.setting-slider input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  background: var(--text-color);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.setting-slider input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  background: var(--text-color);
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+}
+
+.setting-slider span {
+  min-width: 48px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.size-btn {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--header-border);
+  border-radius: 6px;
+  background: var(--bg-color);
+  color: var(--text-color);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.size-btn:hover {
+  background: var(--header-bg);
+}
+
+.size-btn-large {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* Theme buttons */
+.theme-options {
+  display: flex;
+  gap: 12px;
+}
+
+.theme-btn {
+  width: 48px;
+  height: 48px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  padding: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.theme-btn.active {
+  border-color: var(--text-color);
+}
+
+.theme-preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 4px;
+  border: 1px solid var(--header-border);
+}
+
+.theme-light {
+  background: #ffffff;
+}
+
+.theme-sepia {
+  background: #f4ecd8;
+}
+
+.theme-dark {
+  background: #1c1c1e;
+}
+
+.theme-eink {
+  background: linear-gradient(135deg, #ffffff 50%, #000000 50%);
+}
+
+/* Toggle switches */
+.setting-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.toggle-input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--text-color);
+}
+
+.toggle-text {
+  font-size: 15px;
+  color: var(--text-color);
+}
+
+/* ============================================
+   Error State
+   ============================================ */
+#error-container {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-color);
+  z-index: 300;
+}
+
+#error-container.hidden {
+  display: none;
+}
+
+.error-content {
+  text-align: center;
+  padding: 40px;
+  max-width: 400px;
+}
+
+.error-content h2 {
+  font-size: 1.5em;
+  margin-bottom: 16px;
+}
+
+.error-content p {
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.error-source a {
+  color: var(--link-color);
+  word-break: break-all;
+}
+
+.btn-primary {
+  margin-top: 24px;
+  padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  background: var(--text-color);
+  color: var(--bg-color);
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-primary:hover {
+  opacity: 0.9;
+}
+
+/* ============================================
+   Loading State
+   ============================================ */
+#loading-container {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-color);
+  z-index: 300;
+}
+
+#loading-container.hidden {
+  display: none;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--header-border);
+  border-top-color: var(--text-color);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+#loading-container p {
+  margin-top: 16px;
+  color: var(--text-secondary);
+}
+
+/* ============================================
+   Font Family Classes
+   ============================================ */
+body.font-serif, :host(.font-serif) {
+  --font-family: Georgia, 'Times New Roman', 'Noto Serif', serif;
+}
+
+body.font-sans-serif, :host(.font-sans-serif) {
+  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+body.font-monospace, :host(.font-monospace) {
+  --font-family: 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+}
+
+/* ============================================
+   Responsive Adjustments
+   ============================================ */
+@media (max-width: 768px) {
+  :root {
+    --page-padding: 16px;
+    --page-width: 100%;
+  }
+
+  #article-title {
+    font-size: 1.6em;
+  }
+
+  .tap-zone {
+    width: 20%;
+  }
+
+  #settings-content {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+/* Small e-ink devices (e.g., 6-7 inch) */
+@media (max-width: 480px) {
+  :root {
+    --header-height: 44px;
+    --page-padding: 12px;
+  }
+
+  .site-name {
+    display: none;
+  }
+
+  #article-meta {
+    flex-direction: column;
+    gap: 0.25em;
+  }
+}

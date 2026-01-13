@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>InkPages</title>
+  <link rel="stylesheet" href="reader.css">
+</head>
+<body>
+  <!-- Header Bar - Minimal like Safari Reader -->
+  <header id="reader-header">
+    <div class="header-left">
+      <button id="btn-close" class="header-btn" title="Close Reader (Esc)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 6L6 18M6 6l12 12"/>
+        </svg>
+      </button>
+      <span id="site-name" class="site-name"></span>
+    </div>
+
+    <div class="header-center">
+      <span id="page-indicator" class="page-indicator">1 / 1</span>
+    </div>
+
+    <div class="header-right">
+      <button id="btn-settings" class="header-btn" title="Settings">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M12 1v4m0 14v4m-9-9h4m14 0h4M5.6 5.6l2.8 2.8m7.2 7.2l2.8 2.8M5.6 18.4l2.8-2.8m7.2-7.2l2.8-2.8"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Reading Area -->
+  <main id="reader-main">
+    <!-- Article Container - Where paginated content lives -->
+    <article id="article-container">
+      <header id="article-header">
+        <h1 id="article-title"></h1>
+        <div id="article-meta">
+          <span id="article-byline"></span>
+          <span id="article-reading-time"></span>
+        </div>
+      </header>
+
+      <!-- Viewport clips the horizontal overflow -->
+      <div id="content-viewport">
+        <!-- Content container expands horizontally with columns -->
+        <div id="article-content">
+          <!-- Paginated content will be inserted here -->
+        </div>
+      </div>
+    </article>
+
+    <!-- Tap Zones for Navigation -->
+    <div id="tap-zone-prev" class="tap-zone" title="Previous Page"></div>
+    <div id="tap-zone-next" class="tap-zone" title="Next Page"></div>
+  </main>
+
+  <!-- Page Progress Bar -->
+  <div id="progress-bar">
+    <div id="progress-fill"></div>
+  </div>
+
+  <!-- Settings Panel -->
+  <div id="settings-panel" class="hidden">
+    <div id="settings-overlay"></div>
+    <div id="settings-content">
+      <div class="settings-header">
+        <h2>Reading Settings</h2>
+        <button id="btn-close-settings" class="close-btn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 6L6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Font Family -->
+      <div class="setting-group">
+        <label class="setting-label">Font</label>
+        <div class="setting-options font-options">
+          <button class="font-btn" data-font="serif">Serif</button>
+          <button class="font-btn" data-font="sans-serif">Sans</button>
+          <button class="font-btn" data-font="monospace">Mono</button>
+        </div>
+      </div>
+
+      <!-- Font Size -->
+      <div class="setting-group">
+        <label class="setting-label">Font Size</label>
+        <div class="setting-slider">
+          <button class="size-btn" data-action="decrease">A</button>
+          <input type="range" id="font-size-slider" min="14" max="32" value="18" step="1">
+          <button class="size-btn size-btn-large" data-action="increase">A</button>
+          <span id="font-size-value">18px</span>
+        </div>
+      </div>
+
+      <!-- Line Height -->
+      <div class="setting-group">
+        <label class="setting-label">Line Spacing</label>
+        <div class="setting-slider">
+          <input type="range" id="line-height-slider" min="1.4" max="2.2" value="1.8" step="0.1">
+          <span id="line-height-value">1.8</span>
+        </div>
+      </div>
+
+      <!-- Page Width -->
+      <div class="setting-group">
+        <label class="setting-label">Page Width</label>
+        <div class="setting-slider">
+          <input type="range" id="page-width-slider" min="400" max="900" value="680" step="20">
+          <span id="page-width-value">680px</span>
+        </div>
+      </div>
+
+      <!-- Theme Selection -->
+      <div class="setting-group">
+        <label class="setting-label">Theme</label>
+        <div class="setting-options theme-options">
+          <button class="theme-btn" data-theme="light" title="Light">
+            <span class="theme-preview theme-light"></span>
+          </button>
+          <button class="theme-btn" data-theme="sepia" title="Sepia">
+            <span class="theme-preview theme-sepia"></span>
+          </button>
+          <button class="theme-btn" data-theme="dark" title="Dark">
+            <span class="theme-preview theme-dark"></span>
+          </button>
+          <button class="theme-btn" data-theme="eink" title="E-ink">
+            <span class="theme-preview theme-eink"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- E-ink Optimizations -->
+      <div class="setting-group">
+        <label class="setting-label">E-ink Options</label>
+        <div class="setting-toggles">
+          <label class="toggle-label">
+            <input type="checkbox" id="toggle-bold" class="toggle-input">
+            <span class="toggle-text">Bold text</span>
+          </label>
+          <label class="toggle-label">
+            <input type="checkbox" id="toggle-justify" class="toggle-input">
+            <span class="toggle-text">Justify text</span>
+          </label>
+          <label class="toggle-label">
+            <input type="checkbox" id="toggle-grayscale" class="toggle-input">
+            <span class="toggle-text">Force grayscale</span>
+          </label>
+          <label class="toggle-label">
+            <input type="checkbox" id="toggle-no-images" class="toggle-input">
+            <span class="toggle-text">Hide images</span>
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Error/Fallback State -->
+  <div id="error-container" class="hidden">
+    <div class="error-content">
+      <h2>Unable to Extract Article</h2>
+      <p id="error-message">This page doesn't appear to contain a readable article.</p>
+      <p class="error-source">Source: <a id="error-source-link" href="#" target="_blank"></a></p>
+      <button id="btn-close-reader" class="btn-primary">Close Reader</button>
+    </div>
+  </div>
+
+  <!-- Loading State -->
+  <div id="loading-container">
+    <div class="loading-spinner"></div>
+    <p>Extracting article...</p>
+  </div>
+
+  <script src="reader.js"></script>
+</body>
+</html>
