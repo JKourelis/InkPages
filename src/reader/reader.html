@@ -19,6 +19,7 @@
     </div>
 
     <div class="header-center">
+      <span id="compact-title" class="compact-title"></span>
       <span id="page-indicator" class="page-indicator">1 / 1</span>
     </div>
 
@@ -155,6 +156,28 @@
             <span class="toggle-text">Hide images</span>
           </label>
         </div>
+      </div>
+
+      <!-- Behavior Options -->
+      <div class="setting-group">
+        <label class="setting-label">Behavior</label>
+        <div class="setting-toggles">
+          <label class="toggle-label">
+            <input type="checkbox" id="toggle-listing-mode" class="toggle-input" checked>
+            <span class="toggle-text">Show TOC on homepages</span>
+          </label>
+        </div>
+        <p class="setting-hint">When enabled, non-article pages show a clean list of links</p>
+      </div>
+
+      <!-- Safe Area (for browser address bar) -->
+      <div class="setting-group">
+        <label class="setting-label">Bottom Safe Area</label>
+        <div class="setting-slider">
+          <input type="range" id="safe-area-slider" min="0" max="80" value="0" step="4">
+          <span id="safe-area-value">0px</span>
+        </div>
+        <p class="setting-hint">Adjust if browser address bar overlaps content</p>
       </div>
     </div>
   </div>

@@ -31,6 +31,12 @@
   /* Spacing */
   --header-height: 48px;
   --progress-height: 3px;
+
+  /* Safe area for browser chrome (address bar, etc.) */
+  /* Uses CSS env() for automatic detection, plus manual offset */
+  --safe-area-top: 0px;
+  --safe-area-bottom: 0px;
+  --safe-area-manual: 0px; /* User-adjustable offset */
 }
 
 /* Sepia theme */
@@ -150,7 +156,7 @@ body.justify-text #article-content,
    ============================================ */
 #reader-header {
   position: fixed;
-  top: 0;
+  top: calc(env(safe-area-inset-top, 0px) + var(--safe-area-top));
   left: 0;
   right: 0;
   height: var(--header-height);
@@ -160,6 +166,8 @@ body.justify-text #article-content,
   align-items: center;
   justify-content: space-between;
   padding: 0 16px;
+  padding-left: calc(16px + env(safe-area-inset-left, 0px));
+  padding-right: calc(16px + env(safe-area-inset-right, 0px));
   z-index: 100;
   /* E-ink: No shadow to avoid gray artifacts */
 }
@@ -217,15 +225,37 @@ body.justify-text #article-content,
   font-variant-numeric: tabular-nums;
 }
 
+.compact-title {
+  font-size: 14px;
+  color: var(--text-color);
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline; /* Always visible in header */
+  margin-right: 8px;
+}
+
+.compact-title::after {
+  content: "•";
+  margin-left: 8px;
+  color: var(--text-secondary);
+}
+
+/* Hide article header on pages 2+ (controlled by JS adding class) */
+#article-header.minimized {
+  display: none;
+}
+
 /* ============================================
    Main Reading Area
    ============================================ */
 #reader-main {
   position: fixed;
-  top: var(--header-height);
+  top: calc(var(--header-height) + env(safe-area-inset-top, 0px) + var(--safe-area-top));
   left: 0;
   right: 0;
-  bottom: var(--progress-height);
+  bottom: calc(var(--progress-height) + env(safe-area-inset-bottom, 0px) + var(--safe-area-bottom) + var(--safe-area-manual));
   display: flex;
   justify-content: center;
   overflow: hidden;
@@ -439,8 +469,8 @@ body.justify-text #article-content,
    ============================================ */
 .tap-zone {
   position: fixed;
-  top: var(--header-height);
-  bottom: var(--progress-height);
+  top: calc(var(--header-height) + env(safe-area-inset-top, 0px) + var(--safe-area-top));
+  bottom: calc(var(--progress-height) + env(safe-area-inset-bottom, 0px) + var(--safe-area-bottom) + var(--safe-area-manual));
   width: 25%;
   min-width: 80px;
   cursor: pointer;
@@ -458,22 +488,14 @@ body.justify-text #article-content,
   right: 0;
 }
 
-/* Visual feedback on tap - subtle for e-ink */
-.tap-zone:active {
-  background: rgba(0, 0, 0, 0.05);
-}
-
-[data-theme="dark"] .tap-zone:active,
-:host([data-theme="dark"]) .tap-zone:active {
-  background: rgba(255, 255, 255, 0.03);
-}
+/* E-ink: No visual feedback on tap to prevent ghosting */
 
 /* ============================================
    Progress Bar
    ============================================ */
 #progress-bar {
   position: fixed;
-  bottom: 0;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--safe-area-bottom) + var(--safe-area-manual));
   left: 0;
   right: 0;
   height: var(--progress-height);
@@ -737,6 +759,12 @@ body.justify-text #article-content,
   color: var(--text-color);
 }
 
+.setting-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 8px;
+}
+
 /* ============================================
    Error State
    ============================================ */
@@ -863,6 +891,158 @@ body.font-monospace, :host(.font-monospace) {
     width: 100%;
     max-width: none;
   }
+}
+
+/* ============================================
+   Listing/TOC Mode Styles
+   ============================================ */
+.listing-content {
+  padding-bottom: 2em;
+}
+
+/* Section titles (NEWS, SPORT, etc.) - can be links */
+.listing-section-title {
+  margin-top: 2em;
+  margin-bottom: 1em;
+  font-weight: 700;
+  font-size: 0.85em;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  border-bottom: 2px solid var(--header-border);
+  padding-bottom: 0.5em;
+}
+
+.listing-section-title:first-child {
+  margin-top: 0;
+}
+
+.listing-section-title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.listing-section-title a:hover {
+  color: var(--link-color);
+  text-decoration: underline;
+}
+
+/* Main items list */
+.listing-items {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1em 0;
+}
+
+/* Each main item (article with potential sub-links) */
+.listing-item {
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--header-border);
+}
+
+.listing-item:last-child {
+  border-bottom: none;
+}
+
+/* Main article link */
+.listing-main-link {
+  color: var(--text-color);
+  text-decoration: none;
+  display: block;
+  padding: 0.85em 0;
+  font-weight: 500;
+  line-height: 1.5;
+  transition: none; /* E-ink: no transitions */
+}
+
+.listing-main-link:hover {
+  color: var(--link-color);
+}
+
+/* Sub-links (related articles) */
+.listing-sub-links {
+  list-style: none;
+  padding: 0 0 0.5em 1.25em;
+  margin: 0;
+  border-left: 2px solid var(--header-border);
+  margin-left: 0.5em;
+  margin-bottom: 0.75em;
+}
+
+.listing-sub-links li {
+  margin-bottom: 0;
+  line-height: 1.4;
+}
+
+.listing-sub-links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  display: block;
+  padding: 0.4em 0;
+  font-size: 0.9em;
+  transition: none;
+}
+
+.listing-sub-links a:hover {
+  color: var(--link-color);
+}
+
+/* E-ink theme: bolder separators and contrast */
+[data-theme="eink"] .listing-item,
+:host([data-theme="eink"]) .listing-item {
+  border-bottom-color: #999;
+}
+
+[data-theme="eink"] .listing-section-title,
+:host([data-theme="eink"]) .listing-section-title {
+  border-bottom-color: #000;
+}
+
+[data-theme="eink"] .listing-sub-links,
+:host([data-theme="eink"]) .listing-sub-links {
+  border-left-color: #666;
+}
+
+[data-theme="eink"] .listing-sub-links a,
+:host([data-theme="eink"]) .listing-sub-links a {
+  color: #333;
+}
+
+/* External link indicator */
+.external-indicator {
+  font-size: 0.75em;
+  color: var(--text-secondary);
+  margin-left: 0.35em;
+  vertical-align: middle;
+}
+
+/* Legacy support for old flat listing-links (can be removed later) */
+.listing-links {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1em 0;
+}
+
+.listing-links li {
+  margin-bottom: 0;
+  line-height: 1.5;
+  border-bottom: 1px solid var(--header-border);
+}
+
+.listing-links li:last-child {
+  border-bottom: none;
+}
+
+.listing-links a {
+  color: var(--text-color);
+  text-decoration: none;
+  display: block;
+  padding: 0.85em 0;
+  transition: none;
+}
+
+.listing-links a:hover {
+  color: var(--link-color);
 }
 
 /* Small e-ink devices (e.g., 6-7 inch) */

@@ -22,17 +22,24 @@
 
   // State
   let isReaderActive = false;
+  let isListingMode = false;
   let readerOverlay = null;
   let shadowRoot = null;
   let originalTitle = document.title;
   let articleData = null;
+  let listingData = null;
 
   // Listen for messages from background script
   browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'TOGGLE_READER') {
-      toggleReaderMode();
-      sendResponse({ success: true, isActive: isReaderActive });
-      return true;
+      // toggleReaderMode is async - wait for it to complete
+      toggleReaderMode().then(() => {
+        sendResponse({ success: true, isActive: isReaderActive });
+      }).catch(err => {
+        console.error('Toggle reader error:', err);
+        sendResponse({ success: false, error: err.message });
+      });
+      return true; // Keep channel open for async response
     }
     if (message.type === 'CHECK_READER_STATE') {
       sendResponse({ isActive: isReaderActive });
@@ -41,7 +48,9 @@
   });
 
   // Check if we should auto-activate reader mode
-  // Only activates if: 1) this origin has reader mode enabled, AND 2) this page is an article
+  // Activates if this origin has reader mode enabled:
+  // - Article pages: show reader mode
+  // - Non-article pages: show listing/TOC mode (if enabled in settings)
   async function checkAutoActivation() {
     try {
       const origin = window.location.origin;
@@ -55,11 +64,19 @@
         return;
       }
 
+      // Load settings to check if listing mode is enabled
+      const settingsResult = await browserAPI.storage.sync.get('readerSettings');
+      const savedSettings = settingsResult.readerSettings || {};
+      const listingModeEnabled = savedSettings.listingModeEnabled !== false; // Default true
+
       // Small delay to let page fully load before checking content
       setTimeout(async () => {
         // Check if this page is actually an article
         if (await isArticlePage()) {
           activateReaderMode();
+        } else if (listingModeEnabled) {
+          // Not an article - show listing/TOC mode (if enabled)
+          activateListingMode();
         }
       }, 500);
     } catch (e) {
@@ -158,12 +175,30 @@
 
   /**
    * Toggle reader mode on/off
+   * On first activation, detects whether page is article or listing
    */
-  function toggleReaderMode() {
+  async function toggleReaderMode() {
     if (isReaderActive) {
       deactivateReaderMode();
     } else {
-      activateReaderMode();
+      // Detect whether this is an article or listing page
+      const isArticle = await isArticlePage();
+
+      if (isArticle) {
+        activateReaderMode();
+      } else {
+        // Check if listing mode is enabled in settings
+        const settingsResult = await browserAPI.storage.sync.get('readerSettings');
+        const savedSettings = settingsResult.readerSettings || {};
+        const listingModeEnabled = savedSettings.listingModeEnabled !== false; // Default true
+
+        if (listingModeEnabled) {
+          activateListingMode();
+        } else {
+          // Listing mode disabled, try article mode anyway
+          activateReaderMode();
+        }
+      }
     }
   }
 
@@ -197,9 +232,37 @@
   }
 
   /**
+   * Activate listing/TOC mode - show clean links view
+   */
+  async function activateListingMode() {
+    if (isReaderActive) return;
+
+    try {
+      // Extract listing structure
+      listingData = extractListing();
+
+      if (!listingData || listingData.sections.length === 0) {
+        console.warn('Could not extract listing from this page');
+        return;
+      }
+
+      // Create and show reader overlay (reuse the same overlay)
+      isListingMode = true;
+      await createReaderOverlay();
+      isReaderActive = true;
+
+      // Remember this origin as having reader mode enabled
+      await enableReaderForOrigin();
+
+    } catch (error) {
+      console.error('Failed to activate listing mode:', error);
+    }
+  }
+
+  /**
    * Deactivate reader mode - hide overlay and restore page
    */
-  function deactivateReaderMode() {
+  async function deactivateReaderMode() {
     if (!isReaderActive) return;
 
     if (readerOverlay) {
@@ -209,8 +272,363 @@
     document.title = originalTitle;
     document.body.style.overflow = '';
     isReaderActive = false;
+    isListingMode = false;
+
+    // Remove this origin from enabled origins list
+    await disableReaderForOrigin();
   }
 
+  /**
+   * Remove this origin from the enabled origins list
+   */
+  async function disableReaderForOrigin() {
+    try {
+      const origin = window.location.origin;
+      const result = await browserAPI.storage.local.get('readerEnabledOrigins');
+      const enabledOrigins = result.readerEnabledOrigins || [];
+
+      const index = enabledOrigins.indexOf(origin);
+      if (index !== -1) {
+        enabledOrigins.splice(index, 1);
+        await browserAPI.storage.local.set({ readerEnabledOrigins: enabledOrigins });
+        console.log('Reader mode disabled for origin:', origin);
+      }
+    } catch (e) {
+      console.warn('Failed to remove enabled origin:', e);
+    }
+  }
+
+
+  /**
+   * Extract listing/TOC structure from a non-article page
+   * Preserves sections AND nested main/sub article hierarchy
+   *
+   * Output structure:
+   * {
+   *   sections: [
+   *     {
+   *       title: "News",
+   *       level: 2,
+   *       items: [
+   *         {
+   *           main: { href, text, isExternal },
+   *           subs: [{ href, text, isExternal }, ...]
+   *         }
+   *       ]
+   *     }
+   *   ]
+   * }
+   */
+  function extractListing() {
+    const sections = [];
+    let currentSection = { title: null, level: null, items: [] };
+    const seenHrefs = new Set();
+    const processedContainers = new WeakSet();
+
+    // Find main content area
+    const mainContent = document.querySelector('main, [role="main"], .content, #content, .main') || document.body;
+
+    // Selectors for elements to skip entirely
+    const skipSelectors = [
+      'nav', 'footer', '.sidebar', '.advertisement', '.ad',
+      '.social', '.share', '.comment', '.cookie', '.popup', '.modal',
+      'script', 'style', 'noscript', 'iframe', 'form', '[role="search"]',
+      '.newsletter', '.subscribe', '.promo', '.banner', '[hidden]',
+      '.sr-only', '.visually-hidden'
+    ].join(', ');
+
+    // Container selectors - elements that group a main article with sub-links
+    const containerSelectors = [
+      'article',
+      '[data-link-name]',           // Guardian uses this
+      '[class*="card"]',
+      '[class*="story"]',
+      '[class*="teaser"]',
+      '[class*="item"]',
+      'li'
+    ].join(', ');
+
+    /**
+     * Check if element should be skipped
+     */
+    function shouldSkip(el) {
+      if (!el || !el.matches) return false;
+      try {
+        return el.matches(skipSelectors) || el.closest(skipSelectors);
+      } catch (e) {
+        return false;
+      }
+    }
+
+    /**
+     * Validate and create a link object
+     */
+    function createLink(href, text) {
+      if (!href || !text) return null;
+      text = stripHtmlTags(text).trim();
+      if (text.length < 5 || text.length > 400) return null;
+      if (href.startsWith('javascript:')) return null;
+
+      try {
+        const url = new URL(href, window.location.origin);
+        // Skip same-page anchors
+        if (url.hash && url.pathname === window.location.pathname && url.origin === window.location.origin) {
+          return null;
+        }
+        // Skip common non-article links
+        if (text.match(/^(home|about|contact|login|sign in|sign up|subscribe|more\.{0,3}|menu|search|privacy|terms|cookie|skip to)/i)) {
+          return null;
+        }
+        return {
+          href: url.href,
+          text,
+          isExternal: url.origin !== window.location.origin
+        };
+      } catch (e) {
+        return null;
+      }
+    }
+
+    /**
+     * Add link if not already seen
+     */
+    function addIfNew(link) {
+      if (!link || seenHrefs.has(link.href)) return null;
+      seenHrefs.add(link.href);
+      return link;
+    }
+
+    /**
+     * Find the "main" link in a container (the primary headline link)
+     */
+    function findMainLink(container) {
+      // Priority 1: Link with aria-label (modern overlay pattern)
+      const ariaLink = container.querySelector('a[aria-label][href]');
+      if (ariaLink && !shouldSkip(ariaLink)) {
+        const link = createLink(ariaLink.href, ariaLink.getAttribute('aria-label'));
+        if (link) return { link, element: ariaLink };
+      }
+
+      // Priority 2: Link containing a heading
+      const headingInLink = container.querySelector('a[href] h1, a[href] h2, a[href] h3, a[href] h4');
+      if (headingInLink) {
+        const linkEl = headingInLink.closest('a');
+        if (linkEl && !shouldSkip(linkEl)) {
+          const link = createLink(linkEl.href, headingInLink.textContent);
+          if (link) return { link, element: linkEl };
+        }
+      }
+
+      // Priority 3: Heading that's inside a link
+      const heading = container.querySelector('h1, h2, h3, h4');
+      if (heading) {
+        const parentLink = heading.closest('a');
+        if (parentLink && !shouldSkip(parentLink)) {
+          const link = createLink(parentLink.href, heading.textContent);
+          if (link) return { link, element: parentLink };
+        }
+        // Heading contains a link
+        const childLink = heading.querySelector('a[href]');
+        if (childLink && !shouldSkip(childLink)) {
+          const link = createLink(childLink.href, heading.textContent);
+          if (link) return { link, element: childLink };
+        }
+      }
+
+      // Priority 4: First prominent link (with substantial text)
+      const allLinks = container.querySelectorAll('a[href]');
+      for (const a of allLinks) {
+        if (shouldSkip(a)) continue;
+        const text = a.textContent.trim();
+        if (text.length >= 20) {
+          const link = createLink(a.href, text);
+          if (link) return { link, element: a };
+        }
+      }
+
+      return null;
+    }
+
+    /**
+     * Find sub-links in a container (secondary/related links)
+     */
+    function findSubLinks(container, mainLinkEl) {
+      const subs = [];
+
+      // Look for explicit sublinks containers
+      const sublinksContainer = container.querySelector('ul.sublinks, .sublinks, .related-links, .more-links');
+      const searchIn = sublinksContainer || container;
+
+      const allLinks = searchIn.querySelectorAll('a[href]');
+      for (const a of allLinks) {
+        // Skip the main link itself
+        if (a === mainLinkEl) continue;
+        // Skip if contains the main link
+        if (mainLinkEl && a.contains(mainLinkEl)) continue;
+        // Skip if contained by main link
+        if (mainLinkEl && mainLinkEl.contains(a)) continue;
+        // Skip aria-label links (already used as main)
+        if (a.hasAttribute('aria-label')) continue;
+        if (shouldSkip(a)) continue;
+
+        const link = createLink(a.href, a.textContent);
+        const added = addIfNew(link);
+        if (added) subs.push(added);
+      }
+
+      return subs;
+    }
+
+    /**
+     * Check if element is a section header
+     * Returns { isSection: boolean, href: string|null }
+     * Section headers are SHORT text (like "News", "Sport") - NOT headlines
+     * They CAN be links (to the section page)
+     */
+    function checkSectionHeader(heading) {
+      const text = stripHtmlTags(heading.textContent).trim();
+
+      // Section headers must be very short (max 25 chars) - things like "News", "Sport", "Opinion"
+      // Headlines are longer - "Trump says 'no comment' when asked..."
+      if (!text || text.length > 25) {
+        return { isSection: false, href: null };
+      }
+
+      // Check if this heading is a link or contains a link
+      const parentLink = heading.closest('a');
+      const childLink = heading.querySelector('a[href]');
+      const linkEl = parentLink || childLink;
+
+      // It's a section if it's short text
+      return {
+        isSection: true,
+        href: linkEl ? linkEl.href : null,
+        text: text
+      };
+    }
+
+    /**
+     * Process a container element to extract main + sub links
+     */
+    function processContainer(container) {
+      if (processedContainers.has(container)) return null;
+      if (shouldSkip(container)) return null;
+
+      const mainResult = findMainLink(container);
+      if (!mainResult) return null;
+
+      const main = addIfNew(mainResult.link);
+      if (!main) return null;
+
+      processedContainers.add(container);
+
+      const subs = findSubLinks(container, mainResult.element);
+
+      return { main, subs };
+    }
+
+    /**
+     * Start new section if current has content
+     * Sections can have a titleHref (making them clickable)
+     */
+    function startNewSection(title, level, titleHref = null) {
+      if (currentSection.items.length > 0) {
+        sections.push(currentSection);
+      }
+      currentSection = { title, level, titleHref, items: [] };
+    }
+
+    // === Main extraction logic ===
+
+    // Walk the DOM in document order to preserve structure
+    const walker = document.createTreeWalker(
+      mainContent,
+      NodeFilter.SHOW_ELEMENT,
+      {
+        acceptNode: (node) => {
+          if (shouldSkip(node)) return NodeFilter.FILTER_SKIP; // SKIP, not REJECT - check children
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      }
+    );
+
+    let node;
+    while (node = walker.nextNode()) {
+      // Check for section headers (H1-H2 with SHORT text like "News", "Sport")
+      // H3+ are typically article headlines, not sections
+      if (node.tagName && node.tagName.match(/^H[1-2]$/)) {
+        const sectionInfo = checkSectionHeader(node);
+        if (sectionInfo.isSection) {
+          startNewSection(sectionInfo.text, parseInt(node.tagName[1]), sectionInfo.href);
+          continue;
+        }
+      }
+
+      // Check for <section> elements with headings
+      if (node.tagName === 'SECTION') {
+        const sectionHeading = node.querySelector(':scope > h1, :scope > h2, :scope > header h1, :scope > header h2');
+        if (sectionHeading) {
+          const sectionInfo = checkSectionHeader(sectionHeading);
+          if (sectionInfo.isSection) {
+            startNewSection(sectionInfo.text, 2, sectionInfo.href);
+          }
+        }
+      }
+
+      // Check for containers (cards, articles, list items)
+      try {
+        if (node.matches && node.matches(containerSelectors)) {
+          // Only process if this container has links
+          if (node.querySelector('a[href]')) {
+            const item = processContainer(node);
+            if (item) {
+              currentSection.items.push(item);
+            }
+          }
+        }
+      } catch (e) {
+        // matches() might throw for invalid selectors
+      }
+    }
+
+    // Save last section
+    if (currentSection.items.length > 0) {
+      sections.push(currentSection);
+    }
+
+    // Fallback: if we got very few results, do a simpler extraction
+    const totalItems = sections.reduce((sum, s) => sum + s.items.length, 0);
+    if (totalItems < 5) {
+      // Simple fallback: just get all links with substantial text
+      const fallbackItems = [];
+      const allLinks = mainContent.querySelectorAll('a[href]');
+
+      for (const a of allLinks) {
+        if (shouldSkip(a)) continue;
+        const link = createLink(a.href, a.textContent);
+        const added = addIfNew(link);
+        if (added && added.text.length >= 15) {
+          fallbackItems.push({ main: added, subs: [] });
+        }
+      }
+
+      if (fallbackItems.length > 0) {
+        if (sections.length === 0) {
+          sections.push({ title: null, level: null, items: fallbackItems });
+        } else {
+          // Merge into existing sections
+          sections[sections.length - 1].items.push(...fallbackItems);
+        }
+      }
+    }
+
+    return {
+      siteName: extractSiteName(),
+      pageTitle: document.title,
+      sections,
+      sourceUrl: window.location.href
+    };
+  }
 
   /**
    * Sanitize HTML content to remove potentially dangerous elements
@@ -443,10 +861,15 @@
     // Show overlay
     readerOverlay.style.display = 'block';
     document.body.style.overflow = 'hidden';
-    document.title = articleData.title + ' - InkPages';
 
-    // Render article content
-    renderArticle();
+    // Render content based on mode
+    if (isListingMode && listingData) {
+      document.title = listingData.pageTitle + ' - InkPages';
+      renderListing();
+    } else if (articleData) {
+      document.title = articleData.title + ' - InkPages';
+      renderArticle();
+    }
   }
 
   /**
@@ -464,6 +887,9 @@
       contentViewport: shadowRoot.getElementById('content-viewport'),
       articleContent: shadowRoot.getElementById('article-content'),
       siteName: shadowRoot.getElementById('site-name'),
+      compactTitle: shadowRoot.getElementById('compact-title'),
+      headerCenter: shadowRoot.querySelector('.header-center'),
+      articleHeader: shadowRoot.getElementById('article-header'),
       pageIndicator: shadowRoot.getElementById('page-indicator'),
       progressFill: shadowRoot.getElementById('progress-fill'),
       tapZonePrev: shadowRoot.getElementById('tap-zone-prev'),
@@ -486,7 +912,10 @@
       toggleJustify: shadowRoot.getElementById('toggle-justify'),
       toggleGrayscale: shadowRoot.getElementById('toggle-grayscale'),
       toggleNoImages: shadowRoot.getElementById('toggle-no-images'),
-      sizeBtns: shadowRoot.querySelectorAll('.size-btn')
+      toggleListingMode: shadowRoot.getElementById('toggle-listing-mode'),
+      sizeBtns: shadowRoot.querySelectorAll('.size-btn'),
+      safeAreaSlider: shadowRoot.getElementById('safe-area-slider'),
+      safeAreaValue: shadowRoot.getElementById('safe-area-value')
     };
 
     // Store elements for later use
@@ -505,7 +934,9 @@
       boldText: false,
       justifyText: false,
       grayscale: false,
-      noImages: false
+      noImages: false,
+      safeAreaManual: 0,
+      listingModeEnabled: true
     };
 
     // Store state for later use
@@ -546,6 +977,7 @@
       root.style.setProperty('--font-size', `${settings.fontSize}px`);
       root.style.setProperty('--line-height', settings.lineHeight);
       root.style.setProperty('--page-width', `${settings.pageWidth}px`);
+      root.style.setProperty('--safe-area-manual', `${settings.safeAreaManual}px`);
 
       root.classList.toggle('bold-text', settings.boldText);
       root.classList.toggle('justify-text', settings.justifyText);
@@ -591,6 +1023,15 @@
       if (elements.toggleJustify) elements.toggleJustify.checked = settings.justifyText;
       if (elements.toggleGrayscale) elements.toggleGrayscale.checked = settings.grayscale;
       if (elements.toggleNoImages) elements.toggleNoImages.checked = settings.noImages;
+
+      if (elements.safeAreaSlider) {
+        elements.safeAreaSlider.value = settings.safeAreaManual;
+        elements.safeAreaValue.textContent = `${settings.safeAreaManual}px`;
+      }
+
+      if (elements.toggleListingMode) {
+        elements.toggleListingMode.checked = settings.listingModeEnabled;
+      }
     }
 
     function setupPagination() {
@@ -662,6 +1103,12 @@
 
       const progress = totalPages > 1 ? ((currentPage + 1) / totalPages) * 100 : 100;
       elements.progressFill.style.width = `${progress}%`;
+
+      // Hide full article header on pages 2+ (compact title in header bar is always visible)
+      const isFirstPage = currentPage === 0;
+      if (elements.articleHeader) {
+        elements.articleHeader.classList.toggle('minimized', !isFirstPage);
+      }
 
       saveReadingPosition();
     }
@@ -885,6 +1332,24 @@
         });
       }
 
+      // Safe area slider
+      if (elements.safeAreaSlider) {
+        elements.safeAreaSlider.addEventListener('input', (e) => {
+          settings.safeAreaManual = parseInt(e.target.value, 10);
+          elements.safeAreaValue.textContent = `${settings.safeAreaManual}px`;
+          applySettings();
+        });
+        elements.safeAreaSlider.addEventListener('change', saveSettings);
+      }
+
+      // Listing mode toggle
+      if (elements.toggleListingMode) {
+        elements.toggleListingMode.addEventListener('change', (e) => {
+          settings.listingModeEnabled = e.target.checked;
+          saveSettings();
+        });
+      }
+
       // Window resize
       let resizeTimeout;
       window.addEventListener('resize', () => {
@@ -975,6 +1440,11 @@
     elements.articleByline.textContent = articleData.byline || '';
     elements.siteName.textContent = articleData.siteName || '';
 
+    // Set compact title for pages 2+
+    if (elements.compactTitle) {
+      elements.compactTitle.textContent = articleData.title || '';
+    }
+
     if (articleData.readingTime) {
       elements.articleReadingTime.textContent = `${articleData.readingTime} min read`;
     }
@@ -1010,6 +1480,122 @@
         }
       });
     });
+  }
+
+  /**
+   * Render listing/TOC content
+   */
+  function renderListing() {
+    const elements = window.__einkReaderElements;
+    if (!elements || !listingData) return;
+
+    // Hide loading, show content
+    if (elements.loadingContainer) {
+      elements.loadingContainer.classList.add('hidden');
+    }
+
+    // Set header data
+    elements.articleTitle.textContent = listingData.pageTitle || 'Contents';
+    elements.articleByline.textContent = '';
+    elements.siteName.textContent = listingData.siteName || '';
+    elements.articleReadingTime.textContent = `${countTotalLinks()} links`;
+
+    // Set compact title
+    if (elements.compactTitle) {
+      elements.compactTitle.textContent = listingData.pageTitle || 'Contents';
+    }
+
+    // Generate listing HTML with nested structure
+    let html = '<div class="listing-content">';
+
+    for (const section of listingData.sections) {
+      // Section title (can be a link if titleHref exists)
+      if (section.title) {
+        const level = section.level || 2;
+        if (section.titleHref) {
+          html += `<h${level} class="listing-section-title"><a href="${escapeHtml(section.titleHref)}">${escapeHtml(section.title)}</a></h${level}>`;
+        } else {
+          html += `<h${level} class="listing-section-title">${escapeHtml(section.title)}</h${level}>`;
+        }
+      }
+
+      // Section items (main + subs)
+      if (section.items && section.items.length > 0) {
+        html += '<ul class="listing-items">';
+
+        for (const item of section.items) {
+          const mainExternal = item.main.isExternal ? ' <span class="external-indicator">↗</span>' : '';
+          html += '<li class="listing-item">';
+
+          // Main link
+          html += `<a href="${escapeHtml(item.main.href)}" class="listing-main-link">${escapeHtml(item.main.text)}${mainExternal}</a>`;
+
+          // Sub-links (if any)
+          if (item.subs && item.subs.length > 0) {
+            html += '<ul class="listing-sub-links">';
+            for (const sub of item.subs) {
+              const subExternal = sub.isExternal ? ' <span class="external-indicator">↗</span>' : '';
+              html += `<li><a href="${escapeHtml(sub.href)}">${escapeHtml(sub.text)}${subExternal}</a></li>`;
+            }
+            html += '</ul>';
+          }
+
+          html += '</li>';
+        }
+
+        html += '</ul>';
+      }
+    }
+
+    html += '</div>';
+
+    // Render content
+    elements.articleContent.innerHTML = html;
+
+    // Process links - external open in new tab
+    const links = elements.articleContent.querySelectorAll('a[href]');
+    links.forEach(link => {
+      link.addEventListener('click', handleLinkClick);
+    });
+
+    // Set up pagination after content is rendered
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const funcs = window.__einkReaderFunctions;
+        if (funcs) {
+          funcs.setupPagination();
+        }
+      });
+    });
+  }
+
+  /**
+   * Count total links in listing data (main + subs)
+   */
+  function countTotalLinks() {
+    if (!listingData) return 0;
+    return listingData.sections.reduce((total, section) => {
+      return total + (section.items || []).reduce((sectionTotal, item) => {
+        return sectionTotal + 1 + (item.subs ? item.subs.length : 0);
+      }, 0);
+    }, 0);
+  }
+
+  /**
+   * Escape HTML special characters
+   */
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  /**
+   * Strip HTML tags from text (for cleaning extracted content)
+   */
+  function stripHtmlTags(text) {
+    if (!text) return '';
+    return text.replace(/<[^>]*>/g, '').trim();
   }
 
   /**

@@ -8,10 +8,14 @@ Safari-like reader mode for Firefox with paginated, book-style display. Optimize
 
 - **Safari-like article extraction** using [Mozilla Readability](https://github.com/mozilla/readability)
 - **True pagination** with no scrolling - tap/click or swipe to turn pages like a book
+- **TOC/Listing mode** for news homepages - clean table of contents with sections and nested article links
+- **Smart page detection** - automatically chooses article mode or listing mode based on page content
+- **Site memory** - remembers which sites have reader enabled, auto-activates on return visits
+- **Reading position memory** - saves your position in articles (last 50 articles)
 - **E-ink optimizations** - no animations, high contrast themes, minimal repaints
 - **Customizable typography** - font family, size, line height, page width
 - **Multiple themes** - Light, Sepia, Dark, and E-ink high-contrast
-- **Cross-browser support** - Firefox and Chromium-based browsers
+- **Mobile support** - safe area settings for browser address bar overlap
 
 ## How It Differs from Firefox Reader View
 
@@ -19,6 +23,9 @@ Safari-like reader mode for Firefox with paginated, book-style display. Optimize
 |---------|---------------------|-------------------|
 | Layout | Vertical scroll | Paginated pages |
 | Navigation | Scrollbar | Tap zones + keyboard + swipe |
+| Non-article pages | Error message | TOC/listing mode with structured links |
+| Site memory | None | Remembers sites, auto-activates |
+| Position memory | None | Saves reading position per article |
 | E-ink support | Basic | Optimized (no animations, grayscale mode) |
 | Typography | Firefox defaults | Safari-inspired (Georgia serif, generous spacing) |
 | Settings sync | Local only | Cross-device via storage.sync |
@@ -45,7 +52,22 @@ Safari-like reader mode for Firefox with paginated, book-style display. Optimize
 
 1. Navigate to any article or webpage
 2. Click the extension icon in the toolbar
-3. The article will be extracted and displayed in paginated reader view
+3. InkPages automatically detects the page type:
+   - **Article pages** → Reader mode with paginated article content
+   - **Homepages/listing pages** → TOC mode with organized links
+
+### Two Modes
+
+**Reader Mode** (for articles)
+- Extracts article content using Mozilla Readability
+- Displays in clean, paginated format
+- Saves your reading position
+
+**Listing Mode** (for news homepages)
+- Extracts links organized by sections (News, Sport, Opinion, etc.)
+- Shows main articles with related sub-links nested below
+- Section headers are clickable when they link to section pages
+- Works great for sites like The Guardian, Volkskrant, BBC, etc.
 
 ### Navigation
 
@@ -74,6 +96,9 @@ Click the gear icon to access settings:
   - Justify text - Full justification with hyphenation
   - Force grayscale - Applies CSS grayscale filter
   - Hide images - Removes all images for faster rendering
+- **Behavior**:
+  - Show TOC on homepages - Enable/disable listing mode for non-article pages
+- **Bottom Safe Area** - Adjust padding to prevent browser address bar overlap (useful on mobile)
 
 ## Architecture
 
@@ -154,10 +179,14 @@ Test the extension on these types of pages:
 ### Documentation
 - MDN, GitHub docs - should work with technical content
 
+### News Homepages (Listing Mode)
+- The Guardian, Volkskrant, BBC - should show organized TOC with sections
+- Main headlines with nested sub-links for related stories
+
 ### Edge Cases
-- Pages without articles (e.g., homepages) - should show error message
 - Very long articles - pagination should handle smoothly
 - Pages with lots of images - "Hide images" option should work
+- Mixed content pages - should detect article vs listing appropriately
 
 ## Known Limitations
 
