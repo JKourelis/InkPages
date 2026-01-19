@@ -765,6 +765,34 @@ body.justify-text #article-content,
   margin-top: 8px;
 }
 
+/* Settings footer with support link */
+.settings-footer {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--header-border);
+  text-align: center;
+}
+
+.support-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.support-link:hover {
+  opacity: 1;
+  color: var(--link-color);
+}
+
+.support-link svg {
+  flex-shrink: 0;
+}
+
 /* ============================================
    Error State
    ============================================ */
