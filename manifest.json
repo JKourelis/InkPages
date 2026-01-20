@@ -1,8 +1,8 @@
 {
   "manifest_version": 2,
   "name": "InkPages",
-  "version": "1.0.0",
-  "description": "Safari-like reader mode with paginated, book-style display optimized for e-ink devices",
+  "version": "1.0.2",
+  "description": "Transform web content into a clean, paginated reading experience - like a real book. Optimized for e-ink devices.",
 
   "icons": {
     "16": "icons/icon-16.png",

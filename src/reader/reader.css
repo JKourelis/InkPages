@@ -185,7 +185,13 @@ body.justify-text #article-content,
 }
 
 .header-center {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  min-width: 0; /* Allow flex shrink */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
 }
 
 .header-btn {
@@ -223,23 +229,20 @@ body.justify-text #article-content,
   font-size: 14px;
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
+  flex-shrink: 0; /* Prevent page indicator from shrinking */
+  white-space: nowrap;
 }
 
 .compact-title {
   font-size: 14px;
   color: var(--text-color);
-  max-width: 300px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  display: inline; /* Always visible in header */
-  margin-right: 8px;
-}
-
-.compact-title::after {
-  content: "•";
-  margin-left: 8px;
-  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-height: 1.3;
+  max-height: calc(14px * 1.3 * 2); /* font-size * line-height * 2 lines */
+  text-align: center;
 }
 
 /* Hide article header on pages 2+ (controlled by JS adding class) */
