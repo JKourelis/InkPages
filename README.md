@@ -69,6 +69,10 @@ Note: Temporary add-ons are removed when Firefox closes.
 
 ## Changelog
 
+### v1.0.4
+- Fix content continuity bug where text could disappear when navigating from page 1 to page 2
+- Article header now uses absolute positioning with dynamic spacer for consistent pagination
+
 ### v1.0.3
 - Fix pagination bug where pages 2+ only used half the screen height (recalculate layout when article header hides)
 

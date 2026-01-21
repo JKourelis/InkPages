@@ -270,10 +270,7 @@ body.justify-text #article-content,
   height: 100%;
   padding: var(--page-padding);
   overflow: hidden;
-  /* Use flexbox so content-viewport can flex to fill remaining space */
-  display: flex;
-  flex-direction: column;
-  /* Ensure tap zones on sides are clickable */
+  /* Position relative for absolute header positioning */
   position: relative;
   z-index: 1;
 }
@@ -282,9 +279,19 @@ body.justify-text #article-content,
    Article Header
    ============================================ */
 #article-header {
-  flex-shrink: 0; /* Don't shrink the header */
-  margin-bottom: 1.5em;
+  /* Position absolute so it doesn't affect content-viewport height */
+  /* This allows consistent column height across all pages */
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  /* Background to cover content behind it */
+  background: var(--bg-color);
+  /* Original styling */
+  padding: 0 var(--page-padding);
   padding-bottom: 1em;
+  margin-bottom: 0;
   border-bottom: 1px solid var(--header-border);
 }
 
@@ -323,8 +330,9 @@ body.justify-text #article-content,
    ============================================ */
 
 #content-viewport {
-  /* Viewport takes remaining height after article header */
-  flex: 1;
+  /* Full height - header is positioned absolutely and doesn't affect this */
+  /* A spacer div inside #article-content compensates for header on page 0 */
+  height: 100%;
   overflow: hidden;
   position: relative;
 }
@@ -337,6 +345,14 @@ body.justify-text #article-content,
   /* column-width and column-gap set by JS */
   user-select: text;
   /* Transform is applied by JS for page navigation */
+}
+
+/* Spacer to compensate for absolute header on page 0 */
+/* Height is set dynamically by JS based on measured header height */
+#header-spacer {
+  display: block;
+  width: 100%;
+  /* Height set by JS */
 }
 
 /* Content typography - Safari-like */

@@ -990,6 +990,7 @@
         setTimeout(() => {
           currentPage = 0;
           window.__einkReaderState.currentPage = 0;
+          updateHeaderSpacer();
           setupPagination();
         }, 50);
       }
@@ -1034,7 +1035,41 @@
       }
     }
 
-    function setupPagination(skipHeaderRecalc = false) {
+    /**
+     * Update the header spacer to match the current header height.
+     * The spacer compensates for the absolutely-positioned header on page 0,
+     * ensuring content continuity when navigating between pages.
+     */
+    function updateHeaderSpacer() {
+      if (!elements.articleHeader || !elements.articleContent) return;
+
+      // Temporarily show header to measure its height (if it's hidden)
+      const wasMinimized = elements.articleHeader.classList.contains('minimized');
+      if (wasMinimized) {
+        elements.articleHeader.classList.remove('minimized');
+      }
+
+      // Measure actual header height (varies with title length, font size, viewport width)
+      const headerHeight = elements.articleHeader.getBoundingClientRect().height;
+
+      // Restore header state
+      if (wasMinimized) {
+        elements.articleHeader.classList.add('minimized');
+      }
+
+      // Find or create spacer
+      let spacer = elements.articleContent.querySelector('#header-spacer');
+      if (!spacer) {
+        spacer = document.createElement('div');
+        spacer.id = 'header-spacer';
+        elements.articleContent.insertBefore(spacer, elements.articleContent.firstChild);
+      }
+
+      // Set spacer height to match header
+      spacer.style.height = headerHeight + 'px';
+    }
+
+    function setupPagination() {
       const viewport = elements.contentViewport;
       const content = elements.articleContent;
 
@@ -1086,8 +1121,10 @@
         totalPages = Math.max(1, totalPages - 1);
       }
 
-      const exactWidth = totalPages * viewportWidth + (totalPages - 1) * columnGap;
-      content.style.width = exactWidth + 'px';
+      // Use the actual measured width to avoid column misalignment
+      // Previously we calculated exactWidth which could be smaller than actualScrollWidth,
+      // causing columns to shift and page offsets to be wrong
+      content.style.width = actualScrollWidth + 'px';
 
       currentPage = Math.min(currentPage, Math.max(0, totalPages - 1));
 
@@ -1096,10 +1133,10 @@
       window.__einkReaderState.totalPages = totalPages;
       window.__einkReaderState.pageWidth = pageWidth;
 
-      updatePageDisplay(skipHeaderRecalc);
+      updatePageDisplay();
     }
 
-    function updatePageDisplay(skipHeaderRecalc = false) {
+    function updatePageDisplay() {
       if (!elements.articleContent) return;
 
       const offset = currentPage * pageWidth;
@@ -1110,19 +1147,11 @@
       elements.progressFill.style.width = `${progress}%`;
 
       // Hide full article header on pages 2+ (compact title in header bar is always visible)
+      // Note: No recalculation needed because header is positioned absolutely
+      // and a spacer in the content compensates for it on page 0
       const isFirstPage = currentPage === 0;
-      if (elements.articleHeader && !skipHeaderRecalc) {
-        const wasMinimized = elements.articleHeader.classList.contains('minimized');
-        const shouldBeMinimized = !isFirstPage;
-
-        if (wasMinimized !== shouldBeMinimized) {
-          // Header visibility is changing - update class first, then recalculate
-          elements.articleHeader.classList.toggle('minimized', shouldBeMinimized);
-          // Recalculate pagination because viewport height changed
-          // Pass true to skip this header check on the recursive call
-          setupPagination(true);
-          return; // setupPagination will call updatePageDisplay
-        }
+      if (elements.articleHeader) {
+        elements.articleHeader.classList.toggle('minimized', !isFirstPage);
       }
 
       saveReadingPosition();
@@ -1369,7 +1398,10 @@
       let resizeTimeout;
       window.addEventListener('resize', () => {
         clearTimeout(resizeTimeout);
-        resizeTimeout = setTimeout(setupPagination, 150);
+        resizeTimeout = setTimeout(() => {
+          updateHeaderSpacer();
+          setupPagination();
+        }, 150);
       });
     }
 
@@ -1433,6 +1465,7 @@
       prevPage,
       goToPage,
       setupPagination,
+      updateHeaderSpacer,
       applySettings,
       loadReadingPosition
     };
@@ -1487,6 +1520,7 @@
       requestAnimationFrame(async () => {
         const funcs = window.__einkReaderFunctions;
         if (funcs) {
+          funcs.updateHeaderSpacer();
           funcs.setupPagination();
           const savedPage = await funcs.loadReadingPosition();
           if (savedPage > 0) {
@@ -1578,6 +1612,7 @@
       requestAnimationFrame(() => {
         const funcs = window.__einkReaderFunctions;
         if (funcs) {
+          funcs.updateHeaderSpacer();
           funcs.setupPagination();
         }
       });

@@ -116,6 +116,39 @@ Chrome requires Manifest V3. Key changes needed:
    - Minimal code changes needed (mostly API namespace)
    - Consider build script to generate both versions
 
+## Intentional Design Decisions
+
+### Article Header Hidden on Pages 2+
+- **Decision**: Hide the full article header (title, byline, reading time) on pages 2 and beyond
+- **Why**:
+  - Maximizes reading space on e-ink devices where screen real estate is precious
+  - Compact title is shown in the top bar, so context is preserved
+  - Full screen height is used on pages 2+ (no wasted space)
+- **Implementation**: `content.js` line ~1114 - header gets `.minimized` class (display: none)
+- **DO NOT REMOVE THIS BEHAVIOR** - it was added intentionally in v1.0.3
+
+### Solution: Absolute Header + Content Spacer (v1.0.4)
+The content loss issue was solved by:
+1. **Positioning header absolutely**: Header overlays content without affecting viewport height
+2. **Injecting a spacer**: A div at the start of content with height matching the header
+3. **Consistent column height**: Viewport height is always the same (full height)
+
+**How it works**:
+- Header is `position: absolute` with background color (covers content behind it)
+- Spacer div (`#header-spacer`) is injected at start of `#article-content`
+- Spacer height is measured dynamically from actual header height
+- On page 0: spacer pushes content down, header overlays spacer area
+- On pages 1+: header hidden, spacer is in column 0 only, full content visible
+
+**Key functions**:
+- `updateHeaderSpacer()`: Measures header, creates/updates spacer
+- Called before `setupPagination()` in: renderArticle, renderListing, applySettings, resize handler
+
+**Edge cases handled**:
+- Long titles: larger spacer, less content on page 0 (correct behavior)
+- Font size changes: spacer remeasured when settings change
+- Viewport resize: spacer remeasured on window resize
+
 ## Known Limitations
 
 1. JavaScript-rendered pages may not extract properly (Readability needs DOM content)
