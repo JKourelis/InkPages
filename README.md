@@ -67,11 +67,35 @@ Note: Temporary add-ons are removed when Firefox closes.
 | Position memory | None | Saves reading position per article |
 | E-ink support | Basic | Optimized (no animations, grayscale mode) |
 
+## Changelog
+
+### v1.0.3
+- Fix pagination bug where pages 2+ only used half the screen height (recalculate layout when article header hides)
+
+### v1.0.2
+- Fix header title truncation
+- Update README
+
+### v1.0.1
+- Add Ko-fi support link
+
+### v1.0.0
+- Initial release with article mode and TOC/listing mode
+
 ## Known Limitations
 
 1. JavaScript-rendered pages may not extract properly (Readability needs DOM content)
 2. Paywalled content cannot be extracted
 3. Complex layouts may have extraction artifacts
+
+## Future Improvements
+
+- **Chrome Extension** - Manifest V3 version for Chrome/Edge
+- **Customizable Shortcuts** - User-configurable keyboard shortcuts
+- **Export Options** - Save articles as PDF/EPUB
+- **Offline Reading** - Cache articles for offline access
+- **Annotations** - Highlight and note-taking support
+- **Reading Statistics** - Track reading time and articles read
 
 ## Support
 

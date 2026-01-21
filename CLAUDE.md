@@ -180,6 +180,8 @@ git push
 
 - **Sanitization**: `content.js` line ~219 (`sanitizeHTML` function)
 - **Article Detection**: `content.js` line ~73 (`isArticlePage` function)
-- **Pagination Setup**: `content.js` line ~597 (`setupPagination` function)
+- **Pagination Setup**: `content.js` line ~1037 (`setupPagination` function)
+- **Descender Buffer**: `content.js` line ~1070 (small buffer to prevent text touching progress bar)
+- **Header Recalc Fix**: `content.js` line ~1119 (recalculates pagination when header visibility changes)
 - **Cookie/Embed Filtering**: `content.js` line ~275 (`preprocessDOM` function)
 - **Image Scaling Fix**: `reader.css` line ~387 (`#article-content img`)

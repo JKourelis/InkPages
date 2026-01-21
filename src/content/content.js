@@ -1034,7 +1034,7 @@
       }
     }
 
-    function setupPagination() {
+    function setupPagination(skipHeaderRecalc = false) {
       const viewport = elements.contentViewport;
       const content = elements.articleContent;
 
@@ -1064,7 +1064,12 @@
       content.style.visibility = '';
 
       // Set up columns
-      content.style.height = viewportHeight + 'px';
+      // Subtract a small buffer for text descenders (p, g, y, j, q extend below baseline)
+      // This prevents the very last line from touching the progress bar
+      const computedStyle = getComputedStyle(content);
+      const fontSize = parseFloat(computedStyle.fontSize) || 18;
+      const descenderBuffer = Math.ceil(fontSize * 0.25);
+      content.style.height = (viewportHeight - descenderBuffer) + 'px';
       content.style.width = 'max-content';
       content.style.columnWidth = viewportWidth + 'px';
       content.style.columnGap = columnGap + 'px';
@@ -1091,10 +1096,10 @@
       window.__einkReaderState.totalPages = totalPages;
       window.__einkReaderState.pageWidth = pageWidth;
 
-      updatePageDisplay();
+      updatePageDisplay(skipHeaderRecalc);
     }
 
-    function updatePageDisplay() {
+    function updatePageDisplay(skipHeaderRecalc = false) {
       if (!elements.articleContent) return;
 
       const offset = currentPage * pageWidth;
@@ -1106,8 +1111,18 @@
 
       // Hide full article header on pages 2+ (compact title in header bar is always visible)
       const isFirstPage = currentPage === 0;
-      if (elements.articleHeader) {
-        elements.articleHeader.classList.toggle('minimized', !isFirstPage);
+      if (elements.articleHeader && !skipHeaderRecalc) {
+        const wasMinimized = elements.articleHeader.classList.contains('minimized');
+        const shouldBeMinimized = !isFirstPage;
+
+        if (wasMinimized !== shouldBeMinimized) {
+          // Header visibility is changing - update class first, then recalculate
+          elements.articleHeader.classList.toggle('minimized', shouldBeMinimized);
+          // Recalculate pagination because viewport height changed
+          // Pass true to skip this header check on the recursive call
+          setupPagination(true);
+          return; // setupPagination will call updatePageDisplay
+        }
       }
 
       saveReadingPosition();
