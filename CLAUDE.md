@@ -149,6 +149,29 @@ The content loss issue was solved by:
 - Font size changes: spacer remeasured when settings change
 - Viewport resize: spacer remeasured on window resize
 
+### TOC Mode Layout Fixes for Narrow Screens (v1.0.5)
+The TOC/listing mode had issues on phone-sized e-reader screens (320-400px width):
+
+**Problem 1: Text cut off on right edge**
+- Long words/URLs would overflow column boundaries
+- **Fix**: Added `overflow-wrap: break-word` and `word-break: break-word` to `.listing-main-link` and `.listing-sub-links a`
+
+**Problem 2: Excessive sub-link indentation**
+- Original indentation: `padding-left: 1.25em` + `margin-left: 0.5em` = ~32px
+- On narrow screens, this wasted ~10% of available width
+- **Fix**: Reduced to `padding-left: 0.75em` + `margin-left: 0.25em` = ~20px
+
+**Problem 3: Titles spanning across pages**
+- Listing items could break mid-title across column boundaries
+- **Fix**: Added `break-inside: avoid` to `.listing-item`
+- CSS gracefully degrades for extremely long titles (allows breaking if necessary)
+
+**CSS locations** (`reader.css`):
+- `.listing-item` line ~985: `break-inside: avoid`
+- `.listing-main-link` line ~997: word-break properties
+- `.listing-sub-links` line ~1015: reduced indentation
+- `.listing-sub-links a` line ~1029: word-break properties
+
 ## Known Limitations
 
 1. JavaScript-rendered pages may not extract properly (Readability needs DOM content)

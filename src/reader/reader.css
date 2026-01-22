@@ -985,6 +985,8 @@ body.font-monospace, :host(.font-monospace) {
 .listing-item {
   margin-bottom: 0;
   border-bottom: 1px solid var(--header-border);
+  /* Keep items on one page unless extremely long */
+  break-inside: avoid;
 }
 
 .listing-item:last-child {
@@ -1000,6 +1002,9 @@ body.font-monospace, :host(.font-monospace) {
   font-weight: 500;
   line-height: 1.5;
   transition: none; /* E-ink: no transitions */
+  /* Prevent text overflow on narrow screens */
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .listing-main-link:hover {
@@ -1009,10 +1014,10 @@ body.font-monospace, :host(.font-monospace) {
 /* Sub-links (related articles) */
 .listing-sub-links {
   list-style: none;
-  padding: 0 0 0.5em 1.25em;
+  padding: 0 0 0.5em 0.75em;
   margin: 0;
   border-left: 2px solid var(--header-border);
-  margin-left: 0.5em;
+  margin-left: 0.25em;
   margin-bottom: 0.75em;
 }
 
@@ -1028,6 +1033,9 @@ body.font-monospace, :host(.font-monospace) {
   padding: 0.4em 0;
   font-size: 0.9em;
   transition: none;
+  /* Prevent text overflow on narrow screens */
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .listing-sub-links a:hover {

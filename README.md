@@ -69,6 +69,12 @@ Note: Temporary add-ons are removed when Firefox closes.
 
 ## Changelog
 
+### v1.0.5
+- Fix TOC mode layout on narrow/phone-sized e-reader screens
+- Prevent text from being cut off on right edge (added word-break handling)
+- Reduce sub-link indentation for better use of limited screen width
+- Keep listing items on one page where possible (prevent titles spanning across pages)
+
 ### v1.0.4
 - Fix content continuity bug where text could disappear when navigating from page 1 to page 2
 - Article header now uses absolute positioning with dynamic spacer for consistent pagination
