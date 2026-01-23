@@ -149,6 +149,47 @@ The content loss issue was solved by:
 - Font size changes: spacer remeasured when settings change
 - Viewport resize: spacer remeasured on window resize
 
+### CSS Specificity Fix for TOC Mode (v1.0.6)
+
+**Root Cause**: TOC/listing mode pagination was broken on narrow screens because of CSS specificity conflicts.
+
+The article mode base styles used ID selectors:
+```css
+#article-content ul { padding-left: 1.5em; }  /* Specificity: 0-1-1 (101) */
+#article-content li { margin-bottom: 0.5em; } /* Specificity: 0-1-1 (101) */
+```
+
+The listing mode styles used class selectors:
+```css
+.listing-items { padding: 0; }    /* Specificity: 0-1-0 (10) - LOSES */
+.listing-item { margin-bottom: 0; } /* Specificity: 0-1-0 (10) - LOSES */
+```
+
+**Result**: Listing `<ul>` and `<li>` elements inherited article styles (extra padding/margins), causing:
+1. Content shifted right, overflowing column boundaries
+2. Column width calculations wrong (scrollWidth larger than expected)
+3. Progressive misalignment when navigating pages ("drifting out of frame")
+
+**Fix**: Use `:not()` to exclude listing classes from article styles:
+```css
+#article-content ul:not(.listing-items):not(.listing-sub-links),
+#article-content ol {
+  padding-left: 1.5em;
+}
+
+#article-content li:not(.listing-item) {
+  margin-bottom: 0.5em;
+}
+```
+
+**CSS location**: `reader.css` lines ~403-412
+
+**Alternative solutions considered**:
+1. **Prefix listing selectors with `#article-content`** - Would work but more verbose
+2. **Use `:where()` to zero article specificity** - Modern but relies on source order
+3. **Replace `<ul>/<li>` with `<div>` in listing** - Works but loses semantic HTML
+4. **Use `!important`** - Anti-pattern, creates maintenance debt
+
 ### TOC Mode Layout Fixes for Narrow Screens (v1.0.5)
 The TOC/listing mode had issues on phone-sized e-reader screens (320-400px width):
 
@@ -166,11 +207,13 @@ The TOC/listing mode had issues on phone-sized e-reader screens (320-400px width
 - **Fix**: Added `break-inside: avoid` to `.listing-item`
 - CSS gracefully degrades for extremely long titles (allows breaking if necessary)
 
+**Note**: v1.0.5 fixes were insufficient because the root cause (CSS specificity) wasn't addressed until v1.0.6.
+
 **CSS locations** (`reader.css`):
-- `.listing-item` line ~985: `break-inside: avoid`
-- `.listing-main-link` line ~997: word-break properties
-- `.listing-sub-links` line ~1015: reduced indentation
-- `.listing-sub-links a` line ~1029: word-break properties
+- `.listing-item` line ~988: `break-inside: avoid`
+- `.listing-main-link` line ~1000: word-break properties
+- `.listing-sub-links` line ~1018: reduced indentation
+- `.listing-sub-links a` line ~1032: word-break properties
 
 ## Known Limitations
 

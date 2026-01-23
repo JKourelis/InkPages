@@ -400,13 +400,15 @@ body.justify-text #article-content,
   font-style: italic;
 }
 
-#article-content ul,
+/* Exclude listing mode elements from article styles to avoid specificity conflicts */
+/* See CLAUDE.md "CSS Specificity Fix (v1.0.6)" for details */
+#article-content ul:not(.listing-items):not(.listing-sub-links),
 #article-content ol {
   margin: 1em 0;
   padding-left: 1.5em;
 }
 
-#article-content li {
+#article-content li:not(.listing-item) {
   margin-bottom: 0.5em;
 }
 
