@@ -149,14 +149,14 @@ The content loss issue was solved by:
 - Font size changes: spacer remeasured when settings change
 - Viewport resize: spacer remeasured on window resize
 
-### CSS Specificity Fix for TOC Mode (v1.0.6)
+### CSS Specificity Fix for TOC Mode (v1.0.7)
 
 **Root Cause**: TOC/listing mode pagination was broken on narrow screens because of CSS specificity conflicts.
 
 The article mode base styles used ID selectors:
 ```css
-#article-content ul { padding-left: 1.5em; }  /* Specificity: 0-1-1 (101) */
-#article-content li { margin-bottom: 0.5em; } /* Specificity: 0-1-1 (101) */
+#article-content ul { padding-left: 1.5em; }  /* Specificity: 1-0-1 (101) */
+#article-content li { margin-bottom: 0.5em; } /* Specificity: 1-0-1 (101) */
 ```
 
 The listing mode styles used class selectors:
@@ -170,25 +170,24 @@ The listing mode styles used class selectors:
 2. Column width calculations wrong (scrollWidth larger than expected)
 3. Progressive misalignment when navigating pages ("drifting out of frame")
 
-**Fix**: Use `:not()` to exclude listing classes from article styles:
-```css
-#article-content ul:not(.listing-items):not(.listing-sub-links),
-#article-content ol {
-  padding-left: 1.5em;
-}
+**v1.0.6 attempted fix (incomplete)**: Used `:not()` selectors to exclude listing classes from article styles. This failed because sub-link `<li>` elements have no class, so they still matched `li:not(.listing-item)`.
 
-#article-content li:not(.listing-item) {
-  margin-bottom: 0.5em;
-}
+**v1.0.7 fix**: Prefix ALL listing selectors with `#article-content` to give them higher specificity:
+```css
+/* Article styles - specificity 101 */
+#article-content ul { padding-left: 1.5em; }
+#article-content li { margin-bottom: 0.5em; }
+
+/* Listing styles - specificity 110-111 (wins!) */
+#article-content .listing-items { padding: 0; }
+#article-content .listing-item { margin-bottom: 0; }
+#article-content .listing-sub-links { padding: 0 0 0.5em 0.75em; }
+#article-content .listing-sub-links li { margin-bottom: 0; }
 ```
 
-**CSS location**: `reader.css` lines ~403-412
+**CSS location**: `reader.css` lines ~945-1104
 
-**Alternative solutions considered**:
-1. **Prefix listing selectors with `#article-content`** - Would work but more verbose
-2. **Use `:where()` to zero article specificity** - Modern but relies on source order
-3. **Replace `<ul>/<li>` with `<div>` in listing** - Works but loses semantic HTML
-4. **Use `!important`** - Anti-pattern, creates maintenance debt
+**Why this works**: Specificity 110 (ID + class) always beats 101 (ID + element), so listing styles correctly override article styles regardless of source order or nested elements.
 
 ### TOC Mode Layout Fixes for Narrow Screens (v1.0.5)
 The TOC/listing mode had issues on phone-sized e-reader screens (320-400px width):

@@ -69,6 +69,14 @@ Note: Temporary add-ons are removed when Firefox closes.
 
 ## Changelog
 
+### v1.0.7
+- Fix CSS specificity conflict between article and TOC/listing mode once and for all
+- All listing selectors now use `#article-content` prefix for higher specificity (110-111 vs 101)
+- Fixes progressive page drift and content cut-off on narrow screens
+
+### v1.0.6
+- Attempted fix for TOC mode pagination using `:not()` selectors (incomplete fix, superseded by v1.0.7)
+
 ### v1.0.5
 - Fix TOC mode layout on narrow/phone-sized e-reader screens
 - Prevent text from being cut off on right edge (added word-break handling)
