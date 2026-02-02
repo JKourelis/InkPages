@@ -94,27 +94,150 @@ Submitted with notes explaining sanitization approach and that Readability is Mo
 
 ## Chrome Version (TODO)
 
+**Difficulty: Moderate** - mostly config changes, not a rewrite.
+
 Chrome requires Manifest V3. Key changes needed:
 
-1. **Manifest Changes**:
-   - `"manifest_version": 3`
-   - `"action"` instead of `"browser_action"`
-   - `"background": { "service_worker": "..." }` instead of `"scripts"`
-   - Different `"web_accessible_resources"` format
+### 1. Manifest Changes
 
-2. **API Changes**:
-   - `chrome.scripting.executeScript()` instead of `chrome.tabs.executeScript()`
-   - Service worker lifecycle handling (no persistent background)
-   - `chrome.action` instead of `chrome.browserAction`
+| Firefox (MV2) | Chrome (MV3) |
+|---------------|--------------|
+| `"manifest_version": 2` | `"manifest_version": 3` |
+| `"browser_action": {...}` | `"action": {...}` |
+| `"background": { "scripts": [...] }` | `"background": { "service_worker": "..." }` |
+| Simple `"web_accessible_resources"` array | Object with `"resources"` and `"matches"` |
 
-3. **CSP Changes**:
-   - Stricter CSP in MV3
-   - No `eval()` or `new Function()` (we already removed this)
+### 2. API Changes
 
-4. **Suggested Approach**:
-   - Create separate `manifest.v3.json`
-   - Minimal code changes needed (mostly API namespace)
-   - Consider build script to generate both versions
+| Firefox | Chrome MV3 |
+|---------|------------|
+| `browser.browserAction` | `chrome.action` |
+| `browser.tabs.executeScript()` | `chrome.scripting.executeScript()` |
+| Persistent background page | Service worker (non-persistent) |
+
+### 3. Service Worker Considerations
+
+The background script becomes a service worker in MV3:
+- **No persistent state**: Variables reset when worker sleeps
+- **No DOM access**: Can't use `document`, `window` in background
+- **Event-driven**: Must re-register listeners on wake
+
+For InkPages, background.js is simple (just handles toolbar click), so this is minimal work.
+
+### 4. CSP Changes
+- Stricter CSP in MV3
+- No `eval()` or `new Function()` - **we already removed this**
+- Remote code loading prohibited - **we don't use this**
+
+### 5. Suggested Implementation
+
+```bash
+# File structure
+InkPages/
+├── manifest.json        # Firefox MV2
+├── manifest.chrome.json # Chrome MV3
+├── src/
+│   ├── background/
+│   │   ├── background.js         # Firefox
+│   │   └── background.chrome.js  # Chrome service worker
+│   └── ... (rest shared)
+```
+
+**Option A**: Maintain two manifest files manually
+**Option B**: Build script that generates both from a template
+
+### 6. Code Reuse Estimate
+
+| Component | Reusable | Changes Needed |
+|-----------|----------|----------------|
+| content.js | 99% | Change `browser` to `chrome` (or use polyfill) |
+| reader.html | 100% | None |
+| reader.css | 100% | None |
+| reader.js | 100% | None |
+| background.js | 70% | Rewrite for service worker pattern |
+| Readability.js | 100% | None |
+
+### 7. Polyfill Option
+
+Mozilla's `webextension-polyfill` allows using `browser.*` API in Chrome:
+```html
+<script src="browser-polyfill.min.js"></script>
+```
+This would minimize code changes but adds ~15KB.
+
+## Safari iOS App (TODO)
+
+**Difficulty: Higher** - not the code, but the tooling and distribution.
+
+### Requirements
+
+- Mac with Xcode (free)
+- Apple Developer Account ($99/year)
+- App Store review process (can take days)
+
+### How Safari Web Extensions Work
+
+Safari on iOS/macOS supports the WebExtensions API (same standard as Firefox/Chrome). However, extensions must be:
+1. Wrapped in a native app container
+2. Distributed via the App Store
+3. Built with Xcode
+
+### Implementation Steps
+
+1. **Create Xcode Project**
+   - File → New → Project → Safari Extension App
+   - This creates an app wrapper + extension target
+
+2. **Port Extension Code**
+   - Copy `src/` folder into the extension target
+   - Adapt manifest.json to Safari's format (similar to MV2)
+   - Safari uses `browser.*` APIs like Firefox
+
+3. **Handle Safari-Specific Differences**
+   - Some APIs may be missing or behave differently
+   - Test thoroughly on iOS Safari
+   - Handle permissions prompts (Safari is stricter)
+
+4. **App Store Submission**
+   - App must have a minimal UI (even if just "Enable in Safari Settings")
+   - Privacy policy required (we have PRIVACY.md)
+   - Review can reject for various reasons
+
+### Safari API Compatibility
+
+| Feature | Safari Support |
+|---------|----------------|
+| Content scripts | ✅ Yes |
+| Background scripts | ✅ Yes (non-persistent) |
+| storage.local | ✅ Yes |
+| storage.sync | ⚠️ Limited (uses iCloud) |
+| Shadow DOM | ✅ Yes |
+| CSS columns | ✅ Yes |
+
+### Code Reuse Estimate
+
+| Component | Reusable | Notes |
+|-----------|----------|-------|
+| content.js | 95% | Minor API adjustments |
+| reader.html/css/js | 100% | Fully compatible |
+| background.js | 80% | Similar to Chrome service worker |
+| Readability.js | 100% | No changes |
+
+### Distribution Considerations
+
+- **App Store**: Primary distribution, reaches most users
+- **TestFlight**: Beta testing before release
+- **No sideloading**: Unlike Firefox/Chrome, users can't install from files
+
+### Cost Analysis
+
+| Item | Cost |
+|------|------|
+| Apple Developer Account | $99/year |
+| Mac (if needed) | $600+ (or use Mac in Cloud) |
+| Xcode | Free |
+| Time to port | ~1-2 days |
+| App Store review | 1-7 days |
 
 ## Intentional Design Decisions
 
@@ -189,6 +312,74 @@ The listing mode styles used class selectors:
 
 **Why this works**: Specificity 110 (ID + class) always beats 101 (ID + element), so listing styles correctly override article styles regardless of source order or nested elements.
 
+### Sub-Pixel Pagination Fix (v1.0.9)
+
+**Root Cause**: On narrow e-reader screens, viewport dimensions could have fractional pixels (e.g., 359.5px), causing progressive drift when navigating pages.
+
+**The Problem**:
+- `getBoundingClientRect()` returns fractional values
+- Column calculations used these fractional values
+- Each page navigation accumulated small errors
+- After several pages, content would "drift out of frame"
+
+**The Fix**: Always round viewport dimensions to integers:
+```javascript
+// Before (v1.0.8-debug, conditional)
+if (dbg.roundPixels) {
+  viewportWidth = Math.floor(viewportWidth);
+  viewportHeight = Math.floor(viewportHeight);
+}
+
+// After (v1.0.9, always applied)
+const viewportWidth = Math.floor(viewportRect.width);
+const viewportHeight = Math.floor(viewportRect.height);
+```
+
+**Why Math.floor()**: Rounding down ensures content never overflows the viewport. Rounding up could cause content to be cut off.
+
+**Code location**: `content.js` `setupPagination()` function
+
+### HTML Export Feature (v1.0.9)
+
+Added ability to export articles as self-contained HTML files.
+
+**Implementation**:
+- Export button in header bar (download icon)
+- `exportArticle()` function generates clean HTML
+- Uses Web Share API on mobile (opens native share sheet)
+- Falls back to direct download on desktop
+
+**How sharing works on mobile**:
+```javascript
+const file = new File([html], 'article.html', { type: 'text/html' });
+if (navigator.canShare && navigator.canShare({ files: [file] })) {
+  await navigator.share({ files: [file], title: articleData.title });
+}
+```
+
+**Export HTML structure**:
+- Inline CSS (no external dependencies)
+- Article title, byline, source URL
+- Full article content with images (external URLs)
+- "Saved with InkPages" footer
+
+**Code locations**:
+- `content.js`: `exportArticle()`, `generateExportHTML()`
+- `reader.html`: Export button in header-right
+
+### Debug Options (v1.0.9 - Temporary)
+
+Debug options are currently visible in Settings for testing pagination fixes:
+1. Zero all ul/li styles
+2. Force listing !important
+3. Round pixel values (now always on, shown as disabled)
+4. Use calculated width
+5. Integer column width
+
+**TODO**: Remove debug panel in next release if v1.0.9 pagination fix is confirmed working.
+
+**Location**: `reader.html` settings panel, `content.js` `setupDebugControls()`
+
 ### TOC Mode Layout Fixes for Narrow Screens (v1.0.5)
 The TOC/listing mode had issues on phone-sized e-reader screens (320-400px width):
 
@@ -252,13 +443,67 @@ InkPages/
 
 ## Future Improvements
 
-1. **Chrome Extension**: MV3 version (see above)
-2. **Keyboard Shortcuts**: Customizable shortcuts via commands API
-3. **Export Options**: Save article as PDF/EPUB
-4. **Offline Reading**: Cache articles for offline access
-5. **Better Mobile UI**: Optimize settings panel for touch
-6. **Reading Statistics**: Track reading time, articles read
-7. **Annotations**: Highlight and note-taking support
+### High Priority Features
+
+1. **Send to Kindle** - Email article directly to user's Kindle email address
+   - Implementation: Add settings field for Kindle email, use mailto: or email API
+   - Format: Could send HTML or generate MOBI/EPUB
+
+2. **EPUB Export** - More universal for dedicated e-readers than HTML
+   - EPUB is a zip file with specific XML structure
+   - Libraries: JSZip + custom EPUB generator, or epub-gen
+   - More complex than HTML but better e-reader compatibility
+
+3. **Offline Reading** - Cache articles for reading without internet
+   - Use IndexedDB or Cache API to store article content
+   - Add "Save for offline" button
+   - Show saved articles list
+
+4. **Annotations/Highlights** - Mark important passages, export notes
+   - Store highlights in storage.local keyed by URL
+   - Render highlight overlays on text
+   - Export as markdown or JSON
+
+5. **Sync Across Devices** - Reading position sync via Firefox Sync
+   - Already using storage.sync for settings
+   - Could extend to reading positions (currently in storage.local)
+
+### Nice to Have Features
+
+6. **Text-to-Speech** - Read articles aloud
+   - Use Web Speech API (speechSynthesis)
+   - Controls for play/pause, speed, voice selection
+
+7. **Search Within Article** - Find text in current article
+   - Ctrl+F style overlay
+   - Highlight matches, navigate between them
+
+8. **Table of Contents** - For long articles
+   - Extract headings (h1-h6) from article
+   - Sidebar or dropdown navigation
+
+9. **Auto Page-Turn** - Timed automatic page advancement
+   - Configurable interval (e.g., 30 seconds)
+   - Useful for hands-free reading
+
+10. **Reading Statistics** - Track reading habits
+    - Time spent reading, articles completed
+    - Words read, reading speed estimates
+    - Store in storage.local, show in settings
+
+11. **Custom Fonts** - Allow font file upload
+    - Store font in IndexedDB
+    - Use FontFace API to load
+
+12. **Pocket/Instapaper Integration** - Save to read-later services
+    - OAuth integration with services
+    - One-click save button
+
+### Platform Expansion
+
+13. **Chrome Extension** - See detailed section below
+14. **Safari iOS App** - See detailed section below
+15. **Edge Extension** - Same as Chrome (Chromium-based)
 
 ## Build/Release Process
 
