@@ -69,6 +69,10 @@ Note: Temporary add-ons are removed when Firefox closes.
 
 ## Changelog
 
+### v1.0.9
+- Fix sub-pixel pagination drift on narrow e-reader screens (always round viewport dimensions)
+- Add HTML export feature - share articles to e-reader apps on mobile or download on desktop
+
 ### v1.0.7
 - Fix CSS specificity conflict between article and TOC/listing mode once and for all
 - All listing selectors now use `#article-content` prefix for higher specificity (110-111 vs 101)
@@ -110,7 +114,7 @@ Note: Temporary add-ons are removed when Firefox closes.
 
 - **Chrome Extension** - Manifest V3 version for Chrome/Edge
 - **Customizable Shortcuts** - User-configurable keyboard shortcuts
-- **Export Options** - Save articles as PDF/EPUB
+- **More Export Formats** - EPUB/PDF export (HTML export available now)
 - **Offline Reading** - Cache articles for offline access
 - **Annotations** - Highlight and note-taking support
 - **Reading Statistics** - Track reading time and articles read

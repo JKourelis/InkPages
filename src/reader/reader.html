@@ -24,6 +24,13 @@
     </div>
 
     <div class="header-right">
+      <button id="btn-export" class="header-btn" title="Export Article">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+      </button>
       <button id="btn-settings" class="header-btn" title="Settings">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="3"/>
@@ -178,6 +185,36 @@
           <span id="safe-area-value">0px</span>
         </div>
         <p class="setting-hint">Adjust if browser address bar overlaps content</p>
+      </div>
+
+      <!-- Debug: Pagination Fixes (for testing) -->
+      <div class="setting-group">
+        <label class="setting-label">TOC Pagination Fixes</label>
+        <div class="setting-toggles">
+          <label class="toggle-label">
+            <input type="checkbox" id="debug-zero-ul" class="toggle-input">
+            <span class="toggle-text">1. Zero all ul/li styles</span>
+          </label>
+          <label class="toggle-label">
+            <input type="checkbox" id="debug-force-listing" class="toggle-input">
+            <span class="toggle-text">2. Force listing !important</span>
+          </label>
+          <label class="toggle-label" style="opacity:0.5;">
+            <input type="checkbox" id="debug-round-pixels" class="toggle-input" checked disabled>
+            <span class="toggle-text">3. Round pixel values (always on)</span>
+          </label>
+          <label class="toggle-label">
+            <input type="checkbox" id="debug-calc-width" class="toggle-input">
+            <span class="toggle-text">4. Use calculated width</span>
+          </label>
+          <label class="toggle-label">
+            <input type="checkbox" id="debug-int-column" class="toggle-input">
+            <span class="toggle-text">5. Integer column width</span>
+          </label>
+        </div>
+        <p class="setting-hint">Toggle fixes and tap Recalculate below</p>
+        <button id="btn-debug-recalc" class="btn-primary" style="margin-top:10px;width:100%;">Recalculate Pagination</button>
+        <div id="debug-info" style="margin-top:10px;font-size:11px;font-family:monospace;background:#f0f0f0;padding:8px;border-radius:4px;color:#333;"></div>
       </div>
 
       <!-- Support footer -->

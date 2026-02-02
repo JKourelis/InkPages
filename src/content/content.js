@@ -896,6 +896,7 @@
       tapZoneNext: shadowRoot.getElementById('tap-zone-next'),
       btnClose: shadowRoot.getElementById('btn-close'),
       btnSettings: shadowRoot.getElementById('btn-settings'),
+      btnExport: shadowRoot.getElementById('btn-export'),
       settingsPanel: shadowRoot.getElementById('settings-panel'),
       settingsOverlay: shadowRoot.getElementById('settings-overlay'),
       btnCloseSettings: shadowRoot.getElementById('btn-close-settings'),
@@ -1076,8 +1077,11 @@
       if (!viewport || !content) return;
 
       const viewportRect = viewport.getBoundingClientRect();
-      const viewportWidth = viewportRect.width;
-      const viewportHeight = viewportRect.height;
+      const dbg = window.__debugOptions || {};
+
+      // Always round pixel values to prevent sub-pixel drift on narrow screens (v1.0.8 fix)
+      const viewportWidth = Math.floor(viewportRect.width);
+      const viewportHeight = Math.floor(viewportRect.height);
       const columnGap = 50;
 
       // Reset styles
@@ -1106,14 +1110,19 @@
       const descenderBuffer = Math.ceil(fontSize * 0.25);
       content.style.height = (viewportHeight - descenderBuffer) + 'px';
       content.style.width = 'max-content';
-      content.style.columnWidth = viewportWidth + 'px';
+
+      // Option 6: Force integer columnWidth
+      const colWidth = dbg.integerColumnWidth ? Math.floor(viewportWidth) : viewportWidth;
+      content.style.columnWidth = colWidth + 'px';
       content.style.columnGap = columnGap + 'px';
       content.style.columnFill = 'auto';
 
       void content.offsetHeight;
       const actualScrollWidth = content.scrollWidth;
 
+      // pageWidth is already integer since viewportWidth is floored and columnGap is integer
       pageWidth = viewportWidth + columnGap;
+
       totalPages = Math.max(1, Math.ceil((actualScrollWidth + columnGap) / pageWidth));
 
       const lastPageStart = (totalPages - 1) * pageWidth;
@@ -1121,10 +1130,14 @@
         totalPages = Math.max(1, totalPages - 1);
       }
 
-      // Use the actual measured width to avoid column misalignment
-      // Previously we calculated exactWidth which could be smaller than actualScrollWidth,
-      // causing columns to shift and page offsets to be wrong
-      content.style.width = actualScrollWidth + 'px';
+      // Option 4: Use calculated width instead of scrollWidth
+      let finalWidth;
+      if (dbg.useCalculatedWidth) {
+        finalWidth = (totalPages - 1) * pageWidth + viewportWidth;
+      } else {
+        finalWidth = actualScrollWidth;
+      }
+      content.style.width = finalWidth + 'px';
 
       currentPage = Math.min(currentPage, Math.max(0, totalPages - 1));
 
@@ -1139,6 +1152,7 @@
     function updatePageDisplay() {
       if (!elements.articleContent) return;
 
+      // Offset is always integer since currentPage and pageWidth are integers
       const offset = currentPage * pageWidth;
       elements.articleContent.style.transform = `translateX(-${offset}px)`;
       elements.pageIndicator.textContent = `${currentPage + 1} / ${totalPages}`;
@@ -1284,6 +1298,11 @@
         });
       }
 
+      // Export button
+      if (elements.btnExport) {
+        elements.btnExport.addEventListener('click', () => exportArticle());
+      }
+
       // Font buttons
       elements.fontBtns.forEach(btn => {
         btn.addEventListener('click', () => {
@@ -1403,6 +1422,9 @@
           setupPagination();
         }, 150);
       });
+
+      // Debug controls for pagination fixes
+      setupDebugControls();
     }
 
     function handleKeydown(e) {
@@ -1457,6 +1479,294 @@
           }
           break;
       }
+    }
+
+    // Export article as self-contained HTML file
+    async function exportArticle() {
+      if (!articleData) {
+        console.error('InkPages: No article data to export');
+        return;
+      }
+
+      // Generate clean filename from title
+      const cleanTitle = (articleData.title || 'article')
+        .replace(/[^a-zA-Z0-9\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .substring(0, 50)
+        .toLowerCase();
+      const filename = `${cleanTitle}.html`;
+
+      // Build self-contained HTML
+      const html = generateExportHTML();
+
+      // Create file blob
+      const blob = new Blob([html], { type: 'text/html' });
+      const file = new File([blob], filename, { type: 'text/html' });
+
+      // Try Web Share API first (mobile-friendly, opens share sheet)
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: articleData.title
+          });
+          return;
+        } catch (err) {
+          // User cancelled or share failed, fall through to download
+          if (err.name !== 'AbortError') {
+            console.log('InkPages: Share failed, falling back to download', err);
+          }
+        }
+      }
+
+      // Fallback: direct download
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    function generateExportHTML() {
+      const title = articleData.title || 'Untitled';
+      const byline = articleData.byline || '';
+      const siteName = articleData.siteName || '';
+      const content = articleData.content || '';
+      const sourceUrl = articleData.sourceUrl || '';
+
+      // Clean, readable styles for the exported HTML
+      const styles = `
+        * { box-sizing: border-box; }
+        body {
+          max-width: 680px;
+          margin: 0 auto;
+          padding: 20px;
+          font-family: Georgia, 'Times New Roman', serif;
+          font-size: 18px;
+          line-height: 1.8;
+          color: #1a1a1a;
+          background: #fff;
+        }
+        header {
+          margin-bottom: 2em;
+          padding-bottom: 1em;
+          border-bottom: 1px solid #e0e0e0;
+        }
+        h1 {
+          font-size: 1.8em;
+          line-height: 1.3;
+          margin: 0 0 0.5em 0;
+        }
+        .meta {
+          color: #666;
+          font-size: 0.9em;
+        }
+        .meta a { color: #666; }
+        .source {
+          margin-top: 0.5em;
+          font-size: 0.85em;
+        }
+        .source a { color: #0066cc; }
+        img {
+          max-width: 100%;
+          height: auto;
+          display: block;
+          margin: 1em 0;
+        }
+        a { color: #0066cc; }
+        blockquote {
+          margin: 1em 0;
+          padding-left: 1em;
+          border-left: 3px solid #ccc;
+          color: #555;
+        }
+        pre, code {
+          background: #f5f5f5;
+          font-family: monospace;
+          font-size: 0.9em;
+        }
+        pre {
+          padding: 1em;
+          overflow-x: auto;
+        }
+        code { padding: 0.2em 0.4em; }
+        pre code { padding: 0; }
+        footer {
+          margin-top: 3em;
+          padding-top: 1em;
+          border-top: 1px solid #e0e0e0;
+          font-size: 0.85em;
+          color: #888;
+        }
+      `;
+
+      return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(title)}</title>
+  <style>${styles}</style>
+</head>
+<body>
+  <article>
+    <header>
+      <h1>${escapeHtml(title)}</h1>
+      ${byline ? `<p class="meta">${escapeHtml(byline)}</p>` : ''}
+      ${siteName ? `<p class="meta">${escapeHtml(siteName)}</p>` : ''}
+      ${sourceUrl ? `<p class="source">Source: <a href="${escapeHtml(sourceUrl)}">${escapeHtml(sourceUrl)}</a></p>` : ''}
+    </header>
+    <main>${content}</main>
+    <footer>
+      Saved with InkPages
+    </footer>
+  </article>
+</body>
+</html>`;
+    }
+
+    // Debug options for testing pagination fixes (controlled via Settings panel)
+    const debugOptions = {
+      zeroUlLiStyles: false,
+      forceListingInline: false,
+      roundPixels: false,
+      useCalculatedWidth: false,
+      integerColumnWidth: false
+    };
+
+    function setupDebugControls() {
+      try {
+        // Wire up debug checkboxes in settings panel
+        const debugZeroUl = shadowRoot.querySelector('#debug-zero-ul');
+      const debugForceListing = shadowRoot.querySelector('#debug-force-listing');
+      const debugRoundPixels = shadowRoot.querySelector('#debug-round-pixels');
+      const debugCalcWidth = shadowRoot.querySelector('#debug-calc-width');
+      const debugIntColumn = shadowRoot.querySelector('#debug-int-column');
+      const debugRecalcBtn = shadowRoot.querySelector('#btn-debug-recalc');
+
+      if (debugZeroUl) {
+        debugZeroUl.addEventListener('change', () => {
+          debugOptions.zeroUlLiStyles = debugZeroUl.checked;
+        });
+      }
+      if (debugForceListing) {
+        debugForceListing.addEventListener('change', () => {
+          debugOptions.forceListingInline = debugForceListing.checked;
+        });
+      }
+      if (debugRoundPixels) {
+        debugRoundPixels.addEventListener('change', () => {
+          debugOptions.roundPixels = debugRoundPixels.checked;
+        });
+      }
+      if (debugCalcWidth) {
+        debugCalcWidth.addEventListener('change', () => {
+          debugOptions.useCalculatedWidth = debugCalcWidth.checked;
+        });
+      }
+      if (debugIntColumn) {
+        debugIntColumn.addEventListener('change', () => {
+          debugOptions.integerColumnWidth = debugIntColumn.checked;
+        });
+      }
+
+      if (debugRecalcBtn) {
+        debugRecalcBtn.addEventListener('click', () => {
+          applyDebugFixes();
+          setupPagination();
+          updateDebugInfo();
+        });
+      }
+
+      // Store options globally for setupPagination to access
+      window.__debugOptions = debugOptions;
+      } catch (e) {
+        console.error('InkPages: Error setting up debug controls:', e);
+      }
+    }
+
+    function applyDebugFixes() {
+      // Remove previous debug styles
+      const prevStyle = shadowRoot.querySelector('#debug-styles');
+      if (prevStyle) prevStyle.remove();
+
+      let css = '';
+
+      if (debugOptions.zeroUlLiStyles) {
+        css += `
+          #article-content ul, #article-content ol, #article-content li {
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+        `;
+      }
+
+      if (debugOptions.forceListingInline) {
+        css += `
+          #article-content .listing-items,
+          #article-content .listing-sub-links {
+            padding: 0 !important;
+            margin: 0 !important;
+            list-style: none !important;
+          }
+          #article-content .listing-item,
+          #article-content .listing-sub-links li {
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+          #article-content .listing-sub-links {
+            padding-left: 0.75em !important;
+            margin-left: 0.25em !important;
+            border-left: 2px solid #ccc !important;
+          }
+        `;
+      }
+
+      if (css) {
+        const style = document.createElement('style');
+        style.id = 'debug-styles';
+        style.textContent = css;
+        shadowRoot.appendChild(style);
+      }
+
+      // Update global options
+      window.__debugOptions = debugOptions;
+    }
+
+    function updateDebugInfo() {
+      const infoDiv = shadowRoot.querySelector('#debug-info');
+      if (!infoDiv) return;
+
+      const viewport = elements.contentViewport;
+      const content = elements.articleContent;
+
+      if (!viewport || !content) {
+        infoDiv.innerHTML = 'Elements not found';
+        return;
+      }
+
+      const rect = viewport.getBoundingClientRect();
+      const listingItems = content.querySelector('.listing-items');
+      const listingItemsStyle = listingItems ? getComputedStyle(listingItems) : null;
+      const firstLi = content.querySelector('.listing-item');
+      const firstLiStyle = firstLi ? getComputedStyle(firstLi) : null;
+      const subLinks = content.querySelector('.listing-sub-links');
+      const subLinksStyle = subLinks ? getComputedStyle(subLinks) : null;
+
+      infoDiv.innerHTML = `
+        <b>Viewport:</b> ${rect.width.toFixed(1)} x ${rect.height.toFixed(1)}<br>
+        <b>scrollWidth:</b> ${content.scrollWidth}<br>
+        <b>pageWidth:</b> ${pageWidth}<br>
+        <b>totalPages:</b> ${totalPages}<br>
+        <b>currentPage:</b> ${currentPage}<br>
+        <hr style="margin:5px 0;border:none;border-top:1px solid #ccc;">
+        <b>.listing-items pad-L:</b> ${listingItemsStyle ? listingItemsStyle.paddingLeft : 'N/A'}<br>
+        <b>.listing-item margin-B:</b> ${firstLiStyle ? firstLiStyle.marginBottom : 'N/A'}<br>
+        <b>.listing-sub-links pad-L:</b> ${subLinksStyle ? subLinksStyle.paddingLeft : 'N/A'}
+      `;
     }
 
     // Expose functions for external use
