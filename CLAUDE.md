@@ -63,6 +63,9 @@ content.style.columnGap = columnGap + 'px';
 - Checks paragraph density (>2000 chars, >3 substantial paragraphs)
 - Detects listing pages (many short items)
 - Final check: Readability extraction must yield >200 words
+- **Declared articles (v1.1.1)**: if `isDeclaredArticle()` finds `og:type=article`, `article:published_time`, or a top-level JSON-LD `*Article`/`BlogPosting`/`Review` type, thresholds drop to >500 chars, >=2 substantial paragraphs, >80 words, and the listing-structure check is skipped. Only top-level JSON-LD counts: section pages embed `ItemList`s of `NewsArticle`s
+- Why: short reviews (e.g. Volkskrant album reviews, ~180 words) fell through to TOC mode, so all article text "disappeared"
+- Known gap: undeclared section pages with many long teaser paragraphs can still be misread as articles (pre-existing)
 
 ### Settings Storage
 - `storage.sync`: User preferences (font, theme, etc.) - syncs across devices

@@ -71,6 +71,10 @@ Note: Temporary add-ons are removed when Firefox closes.
 
 ## Changelog
 
+### v1.1.1
+- Short articles (reviews, news briefs) now open as articles instead of the TOC view, when the page marks itself as an article (og:type, article:published_time or JSON-LD)
+- Fix duplicate ids when a site's article uses the same id as the reader
+
 ### v1.1.0
 - Optional floating "Ink" button to open the reader, draggable and resizable (contributed by @AwesomeLemon, PR #1). On by default on Android, where the toolbar button is buried in the menu
 - New "Links" setting: Normal / Plain text / Hide link blocks (issue #2)

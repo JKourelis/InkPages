@@ -436,9 +436,16 @@
     // - Not have a listing structure with many items
     // - Preferably have article-like elements
 
-    const hasSubstantialContent = totalTextLength > 2000 && substantialParagraphs > 3;
+    // Pages that declare themselves an article (og:type, article:published_time, JSON-LD)
+    // can be short, e.g. reviews and news briefs, so they get lower thresholds
+    const declaredArticle = isDeclaredArticle();
+
+    const hasSubstantialContent = declaredArticle
+      ? totalTextLength > 500 && substantialParagraphs >= 2
+      : totalTextLength > 2000 && substantialParagraphs > 3;
     const hasArticleStructure = (article || mainContent) && hasSingleMainHeading;
-    const isNotListingPage = !hasListingStructure || substantialParagraphs > 5;
+    const isNotListingPage = declaredArticle || !hasListingStructure || substantialParagraphs > 5;
+    const minWords = declaredArticle ? 80 : 200;
 
     // Final check: try to extract with Readability and see if we get good content
     detectedArticle = null;
@@ -447,14 +454,40 @@
         const extracted = extractArticle();
         if (extracted) {
           detectedArticle = extracted;
-          // Article should have at least 200 words of extracted content
-          return extracted.wordCount > 200;
+          return extracted.wordCount > minWords;
         }
       } catch (e) {
         console.warn('Readability check failed:', e);
       }
     }
 
+    return false;
+  }
+
+  const ARTICLE_SCHEMA_TYPES = /^(\w*Article|BlogPosting|Review|Report)$/;
+
+  /**
+   * Check whether the page declares itself as a single article in its metadata.
+   * Only the page's own top-level JSON-LD type counts: listing pages often embed
+   * ItemLists of NewsArticle entries, which must not match.
+   */
+  function isDeclaredArticle() {
+    const ogType = document.querySelector('meta[property="og:type"]');
+    if (ogType && ogType.getAttribute('content') === 'article') return true;
+    if (document.querySelector('meta[property="article:published_time"]')) return true;
+
+    for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+      try {
+        const data = JSON.parse(script.textContent);
+        const nodes = Array.isArray(data) ? data : (data['@graph'] || [data]);
+        for (const node of nodes) {
+          const types = [].concat(node && node['@type'] || []);
+          if (types.some(type => ARTICLE_SCHEMA_TYPES.test(type))) return true;
+        }
+      } catch {
+        // Malformed JSON-LD is common; ignore it
+      }
+    }
     return false;
   }
 
@@ -2058,6 +2091,14 @@
 
     // Render content
     elements.articleContent.innerHTML = articleData.content || '';
+
+    // Drop article ids that clash with the reader's own (e.g. a site's <article id="article-content">)
+    const readerIds = new Set(Array.from(shadowRoot.querySelectorAll('[id]'))
+      .filter(el => el === elements.articleContent || !elements.articleContent.contains(el))
+      .map(el => el.id));
+    elements.articleContent.querySelectorAll('[id]').forEach(el => {
+      if (readerIds.has(el.id)) el.removeAttribute('id');
+    });
 
     // Process images
     const images = elements.articleContent.querySelectorAll('img');
