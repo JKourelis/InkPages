@@ -19,6 +19,7 @@
 
   // Cross-browser compatibility
   const browserAPI = typeof browser !== 'undefined' ? browser : chrome;
+  const isLikelyAndroid = /Android/i.test(navigator.userAgent);
 
   // ============================================
   // State
@@ -37,8 +38,16 @@
     boldText: false,
     justifyText: false,
     grayscale: false,
-    noImages: false
+    noImages: false,
+    floatingButtonEnabled: isLikelyAndroid,
+    floatingButtonSize: 50
   };
+
+  function normalizeFloatingButtonSize(value) {
+    const numericValue = Number(value);
+    const fallback = 50;
+    return Math.max(32, Math.min(84, Number.isFinite(numericValue) ? numericValue : fallback));
+  }
 
   // ============================================
   // DOM Elements - Initialize after DOM ready
@@ -79,6 +88,9 @@
       toggleJustify: document.getElementById('toggle-justify'),
       toggleGrayscale: document.getElementById('toggle-grayscale'),
       toggleNoImages: document.getElementById('toggle-no-images'),
+      toggleFloatingButton: document.getElementById('toggle-floating-button'),
+      floatingButtonSizeSlider: document.getElementById('floating-button-size-slider'),
+      floatingButtonSizeValue: document.getElementById('floating-button-size-value'),
       sizeBtns: document.querySelectorAll('.size-btn')
     };
 
@@ -149,6 +161,7 @@
       if (result.readerSettings) {
         settings = { ...settings, ...result.readerSettings };
       }
+      settings.floatingButtonSize = normalizeFloatingButtonSize(settings.floatingButtonSize);
     } catch (error) {
       console.warn('Failed to load settings:', error);
     }
@@ -456,6 +469,14 @@
     if (elements.toggleJustify) elements.toggleJustify.checked = settings.justifyText;
     if (elements.toggleGrayscale) elements.toggleGrayscale.checked = settings.grayscale;
     if (elements.toggleNoImages) elements.toggleNoImages.checked = settings.noImages;
+    if (elements.toggleFloatingButton) elements.toggleFloatingButton.checked = settings.floatingButtonEnabled;
+
+    if (elements.floatingButtonSizeSlider) {
+      elements.floatingButtonSizeSlider.value = settings.floatingButtonSize;
+    }
+    if (elements.floatingButtonSizeValue) {
+      elements.floatingButtonSizeValue.textContent = `${settings.floatingButtonSize}px`;
+    }
   }
 
   // ============================================
@@ -615,6 +636,23 @@
         applySettings();
         saveSettings();
       });
+    }
+
+    if (elements.toggleFloatingButton) {
+      elements.toggleFloatingButton.addEventListener('change', (e) => {
+        settings.floatingButtonEnabled = e.target.checked;
+        saveSettings();
+      });
+    }
+
+    if (elements.floatingButtonSizeSlider) {
+      elements.floatingButtonSizeSlider.addEventListener('input', (e) => {
+        settings.floatingButtonSize = normalizeFloatingButtonSize(parseInt(e.target.value, 10));
+        if (elements.floatingButtonSizeValue) {
+          elements.floatingButtonSizeValue.textContent = `${settings.floatingButtonSize}px`;
+        }
+      });
+      elements.floatingButtonSizeSlider.addEventListener('change', saveSettings);
     }
 
     // Window resize

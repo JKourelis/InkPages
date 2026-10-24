@@ -28,6 +28,292 @@
   let originalTitle = document.title;
   let articleData = null;
   let listingData = null;
+  const isLikelyAndroid = /Android/i.test(navigator.userAgent);
+  const floatingButtonPositionKey = 'floatingButtonPosition';
+  let floatingButtonEnabled = isLikelyAndroid;
+  let floatingButtonSize = 50;
+  let floatingButtonElement = null;
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function normalizeFloatingButtonSize(value) {
+    const numericValue = Number(value);
+    const fallback = 50;
+    return clamp(Number.isFinite(numericValue) ? numericValue : fallback, 32, 84);
+  }
+
+  function setFloatingButtonSize(size) {
+    floatingButtonSize = normalizeFloatingButtonSize(size);
+    if (!floatingButtonElement) return;
+
+    const sizePx = Math.round(floatingButtonSize);
+    const fontSizePx = Math.max(11, Math.round(sizePx * 0.26));
+    floatingButtonElement.style.width = `${sizePx}px`;
+    floatingButtonElement.style.height = `${sizePx}px`;
+    floatingButtonElement.style.fontSize = `${fontSizePx}px`;
+  }
+
+  function ensureFloatingButtonStyles() {
+    if (document.getElementById('inkpages-floating-button-style')) return;
+
+    const style = document.createElement('style');
+    style.id = 'inkpages-floating-button-style';
+    style.textContent = `
+      #inkpages-floating-button {
+        position: fixed;
+        right: 16px;
+        bottom: 96px;
+        width: 50px;
+        height: 50px;
+        border: 2px solid #111;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.35);
+        color: #111;
+        font: 600 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        letter-spacing: 0.2px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        z-index: 2147483646;
+        backdrop-filter: blur(1px);
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-user-drag: none;
+        transition: opacity 0.15s ease, transform 0.15s ease;
+      }
+
+      #inkpages-floating-button:hover {
+        opacity: 0.95;
+      }
+
+      #inkpages-floating-button.dragging {
+        opacity: 0.98;
+        transform: scale(1.05);
+      }
+    `;
+    (document.head || document.documentElement).appendChild(style);
+  }
+
+  function updateFloatingButtonVisibility() {
+    if (!floatingButtonElement) return;
+    const shouldShow = floatingButtonEnabled && !isReaderActive;
+    floatingButtonElement.style.display = shouldShow ? 'flex' : 'none';
+  }
+
+  async function loadFloatingButtonPosition() {
+    try {
+      const result = await browserAPI.storage.local.get(floatingButtonPositionKey);
+      return result[floatingButtonPositionKey] || null;
+    } catch (error) {
+      console.warn('Failed to load floating button position:', error);
+      return null;
+    }
+  }
+
+  async function saveFloatingButtonPosition(left, top) {
+    try {
+      await browserAPI.storage.local.set({
+        [floatingButtonPositionKey]: {
+          left: Math.round(left),
+          top: Math.round(top)
+        }
+      });
+    } catch (error) {
+      console.warn('Failed to save floating button position:', error);
+    }
+  }
+
+  function setFloatingButtonPosition(left, top) {
+    if (!floatingButtonElement) return;
+
+    const margin = 8;
+    const width = floatingButtonElement.offsetWidth || 50;
+    const height = floatingButtonElement.offsetHeight || 50;
+    const clampedLeft = clamp(left, margin, Math.max(margin, window.innerWidth - width - margin));
+    const clampedTop = clamp(top, margin, Math.max(margin, window.innerHeight - height - margin));
+
+    floatingButtonElement.style.left = `${Math.round(clampedLeft)}px`;
+    floatingButtonElement.style.top = `${Math.round(clampedTop)}px`;
+    floatingButtonElement.style.right = 'auto';
+    floatingButtonElement.style.bottom = 'auto';
+  }
+
+  function setupFloatingButtonInteractions(button) {
+    let dragState = null;
+
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+
+    button.addEventListener('pointerdown', (event) => {
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+
+      const rect = button.getBoundingClientRect();
+      dragState = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        offsetX: event.clientX - rect.left,
+        offsetY: event.clientY - rect.top,
+        moved: false
+      };
+
+      button.classList.add('dragging');
+      if (button.setPointerCapture) {
+        button.setPointerCapture(event.pointerId);
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+    });
+
+    button.addEventListener('pointermove', (event) => {
+      if (!dragState || event.pointerId !== dragState.pointerId) return;
+
+      const nextLeft = event.clientX - dragState.offsetX;
+      const nextTop = event.clientY - dragState.offsetY;
+      setFloatingButtonPosition(nextLeft, nextTop);
+
+      if (!dragState.moved) {
+        const dx = Math.abs(event.clientX - dragState.startX);
+        const dy = Math.abs(event.clientY - dragState.startY);
+        if (dx > 4 || dy > 4) {
+          dragState.moved = true;
+        }
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+    });
+
+    button.addEventListener('pointerup', async (event) => {
+      if (!dragState || event.pointerId !== dragState.pointerId) return;
+
+      const wasMoved = dragState.moved;
+      dragState = null;
+      button.classList.remove('dragging');
+
+      if (button.releasePointerCapture) {
+        try {
+          button.releasePointerCapture(event.pointerId);
+        } catch (e) {
+          // Ignore if capture is already released
+        }
+      }
+
+      if (wasMoved) {
+        const rect = button.getBoundingClientRect();
+        await saveFloatingButtonPosition(rect.left, rect.top);
+      } else {
+        try {
+          await toggleReaderMode();
+        } catch (error) {
+          console.error('Floating button toggle failed:', error);
+        }
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+    });
+
+    button.addEventListener('pointercancel', (event) => {
+      if (!dragState || event.pointerId !== dragState.pointerId) return;
+      dragState = null;
+      button.classList.remove('dragging');
+    });
+  }
+
+  async function ensureFloatingButton() {
+    if (floatingButtonElement) return floatingButtonElement;
+
+    // Reuse an existing button if it is already present in DOM (e.g. after reinjection/hot reload).
+    const existingButtons = document.querySelectorAll('#inkpages-floating-button');
+    if (existingButtons.length > 0) {
+      floatingButtonElement = existingButtons[0];
+      // Keep only one instance.
+      for (let i = 1; i < existingButtons.length; i++) {
+        existingButtons[i].remove();
+      }
+      setFloatingButtonSize(floatingButtonSize);
+      updateFloatingButtonVisibility();
+      return floatingButtonElement;
+    }
+
+    ensureFloatingButtonStyles();
+    const button = document.createElement('button');
+    button.id = 'inkpages-floating-button';
+    button.type = 'button';
+    button.draggable = false;
+    button.textContent = 'Ink';
+    button.title = 'Open InkPages';
+    button.setAttribute('aria-label', 'Open InkPages reader');
+    setupFloatingButtonInteractions(button);
+
+    document.body.appendChild(button);
+    floatingButtonElement = button;
+    setFloatingButtonSize(floatingButtonSize);
+
+    const savedPosition = await loadFloatingButtonPosition();
+    if (
+      savedPosition &&
+      Number.isFinite(savedPosition.left) &&
+      Number.isFinite(savedPosition.top)
+    ) {
+      setFloatingButtonPosition(savedPosition.left, savedPosition.top);
+    }
+
+    updateFloatingButtonVisibility();
+    return floatingButtonElement;
+  }
+
+  function removeFloatingButton() {
+    if (!floatingButtonElement) return;
+    floatingButtonElement.remove();
+    floatingButtonElement = null;
+  }
+
+  function setFloatingButtonEnabled(enabled) {
+    floatingButtonEnabled = !!enabled;
+    if (floatingButtonEnabled) {
+      ensureFloatingButton().catch(error => {
+        console.warn('Failed to create floating button:', error);
+      });
+    } else {
+      removeFloatingButton();
+    }
+  }
+
+  async function initializeFloatingButton() {
+    try {
+      const result = await browserAPI.storage.sync.get('readerSettings');
+      const savedSettings = result.readerSettings || {};
+      if (typeof savedSettings.floatingButtonEnabled === 'boolean') {
+        floatingButtonEnabled = savedSettings.floatingButtonEnabled;
+      }
+      if (savedSettings.floatingButtonSize !== undefined) {
+        floatingButtonSize = normalizeFloatingButtonSize(savedSettings.floatingButtonSize);
+      }
+    } catch (error) {
+      console.warn('Failed to load floating button setting:', error);
+    }
+
+    if (floatingButtonEnabled) {
+      await ensureFloatingButton();
+    }
+
+    window.addEventListener('resize', () => {
+      if (!floatingButtonElement) return;
+      if (window.getComputedStyle(floatingButtonElement).display === 'none') return;
+      const rect = floatingButtonElement.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      setFloatingButtonPosition(rect.left, rect.top);
+    });
+  }
 
   // Listen for messages from background script
   browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -221,6 +507,7 @@
       // Create and show reader overlay
       await createReaderOverlay();
       isReaderActive = true;
+      updateFloatingButtonVisibility();
 
       // Remember this origin as having reader mode enabled
       await enableReaderForOrigin();
@@ -250,6 +537,7 @@
       isListingMode = true;
       await createReaderOverlay();
       isReaderActive = true;
+      updateFloatingButtonVisibility();
 
       // Remember this origin as having reader mode enabled
       await enableReaderForOrigin();
@@ -273,6 +561,7 @@
     document.body.style.overflow = '';
     isReaderActive = false;
     isListingMode = false;
+    updateFloatingButtonVisibility();
 
     // Remove this origin from enabled origins list
     await disableReaderForOrigin();
@@ -914,6 +1203,9 @@
       toggleGrayscale: shadowRoot.getElementById('toggle-grayscale'),
       toggleNoImages: shadowRoot.getElementById('toggle-no-images'),
       toggleListingMode: shadowRoot.getElementById('toggle-listing-mode'),
+      toggleFloatingButton: shadowRoot.getElementById('toggle-floating-button'),
+      floatingButtonSizeSlider: shadowRoot.getElementById('floating-button-size-slider'),
+      floatingButtonSizeValue: shadowRoot.getElementById('floating-button-size-value'),
       sizeBtns: shadowRoot.querySelectorAll('.size-btn'),
       safeAreaSlider: shadowRoot.getElementById('safe-area-slider'),
       safeAreaValue: shadowRoot.getElementById('safe-area-value')
@@ -937,7 +1229,9 @@
       grayscale: false,
       noImages: false,
       safeAreaManual: 0,
-      listingModeEnabled: true
+      listingModeEnabled: true,
+      floatingButtonEnabled: isLikelyAndroid,
+      floatingButtonSize: 50
     };
 
     // Store state for later use
@@ -956,6 +1250,9 @@
           settings = { ...settings, ...result.readerSettings };
           window.__einkReaderState.settings = settings;
         }
+        settings.floatingButtonSize = normalizeFloatingButtonSize(settings.floatingButtonSize);
+        setFloatingButtonSize(settings.floatingButtonSize);
+        setFloatingButtonEnabled(settings.floatingButtonEnabled);
         applySettings();
       } catch (error) {
         console.warn('Failed to load settings:', error);
@@ -1033,6 +1330,17 @@
 
       if (elements.toggleListingMode) {
         elements.toggleListingMode.checked = settings.listingModeEnabled;
+      }
+
+      if (elements.toggleFloatingButton) {
+        elements.toggleFloatingButton.checked = settings.floatingButtonEnabled;
+      }
+
+      if (elements.floatingButtonSizeSlider) {
+        elements.floatingButtonSizeSlider.value = settings.floatingButtonSize;
+      }
+      if (elements.floatingButtonSizeValue) {
+        elements.floatingButtonSizeValue.textContent = `${settings.floatingButtonSize}px`;
       }
     }
 
@@ -1411,6 +1719,25 @@
           settings.listingModeEnabled = e.target.checked;
           saveSettings();
         });
+      }
+
+      if (elements.toggleFloatingButton) {
+        elements.toggleFloatingButton.addEventListener('change', (e) => {
+          settings.floatingButtonEnabled = e.target.checked;
+          setFloatingButtonEnabled(settings.floatingButtonEnabled);
+          saveSettings();
+        });
+      }
+
+      if (elements.floatingButtonSizeSlider) {
+        elements.floatingButtonSizeSlider.addEventListener('input', (e) => {
+          settings.floatingButtonSize = normalizeFloatingButtonSize(parseInt(e.target.value, 10));
+          setFloatingButtonSize(settings.floatingButtonSize);
+          if (elements.floatingButtonSizeValue) {
+            elements.floatingButtonSizeValue.textContent = `${settings.floatingButtonSize}px`;
+          }
+        });
+        elements.floatingButtonSizeSlider.addEventListener('change', saveSettings);
       }
 
       // Window resize
@@ -2006,6 +2333,7 @@
     }, 3000);
   }
 
-  // Check if we should auto-activate reader mode on this page
+  // Initialize floating button and check auto-activation for sticky mode
+  initializeFloatingButton();
   checkAutoActivation();
 })();
