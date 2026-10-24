@@ -38,8 +38,8 @@ InkPages is a Firefox extension that provides Safari-like reader mode with pagin
 
 1. **True Pagination**: CSS multi-column layout with `translateX` navigation (no scrolling)
 2. **Article Detection**: Heuristics to detect articles vs homepages/listing pages
-3. **Site Memory**: Remembers which origins have reader mode enabled. Closing an article forgets the origin; closing the TOC view only hides it for that page (v1.1.2)
-4. **Auto-Activation**: On remembered sites, auto-activates only on detected article pages
+3. **Site Memory**: Remembers which origins have reader mode enabled. Since v1.1.3 closing the reader never forgets the origin (it only hides the reader for that page); the "Auto-open on this site" toggle in Settings adds/removes the origin. Before, closing an article removed it, so with TOC mode off every close turned sticky mode off and each page needed a click
+4. **Auto-Activation**: On remembered sites, auto-activates only on detected article pages. Declared articles that fail detection at 500ms are re-checked after +1s and +2s (late-rendered text), before falling back to TOC/nothing (v1.1.3)
 5. **Reading Position Memory**: Saves position per URL (last 50 articles)
 6. **Link Handling**: Same-origin links navigate normally, external links open in new tab
 7. **HTML Sanitization**: Strips event handlers, javascript: URLs, scripts, forms, iframes

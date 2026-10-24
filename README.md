@@ -20,7 +20,7 @@ InkPages transforms web content into a clean, paginated reading experience - lik
 - **E-ink optimizations** - bold text, justify, grayscale, hide images
 - **Link controls** - show links normally, as plain text, or hide link-heavy blocks ("Read more", related-story promos)
 - **Floating button** - optional draggable "Ink" button to open the reader in one tap (on by default on Android)
-- **Site memory** - auto-activates on sites you've used it on
+- **Site memory** - auto-activates on sites you've used it on (switch off per site in Settings)
 - **Reading position memory** - resume where you left off
 
 ## Installation
@@ -70,6 +70,10 @@ Note: Temporary add-ons are removed when Firefox closes.
 | E-ink support | Basic | Optimized (no animations, grayscale mode) |
 
 ## Changelog
+
+### v1.1.3
+- Closing the reader no longer turns off auto-open for the site. Use the new "Auto-open on this site" switch in Settings instead
+- Articles whose text loads late (paywall checks, JavaScript-built pages) are retried before giving up on auto-open
 
 ### v1.1.2
 - Closing the TOC view on a homepage no longer turns off auto-reading for the whole site; only closing an article does

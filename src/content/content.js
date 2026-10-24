@@ -377,8 +377,20 @@
 
       // Small delay to let page fully load before checking content
       setTimeout(async () => {
-        // Check if this page is actually an article
-        if (await isArticlePage()) {
+        // Check if this page is actually an article. Pages that declare themselves an article
+        // but render their text late (hydration, paywall checks) get a few more tries.
+        let isArticle = await isArticlePage();
+        const retryDelays = isDeclaredArticle() ? [1000, 2000] : [];
+        for (const delay of retryDelays) {
+          if (isArticle || isReaderActive) break;
+          await new Promise(resolve => setTimeout(resolve, delay));
+          isArticle = await isArticlePage();
+        }
+
+        // The user may have opened the reader themselves while we were waiting
+        if (isReaderActive) return;
+
+        if (isArticle) {
           activateReaderMode();
         } else if (listingModeEnabled) {
           // Not an article - show listing/TOC mode (if enabled)
@@ -614,18 +626,26 @@
       readerOverlay.style.display = 'none';
     }
 
-    const wasListingMode = isListingMode;
-
     document.title = originalTitle;
     document.body.style.overflow = '';
     isReaderActive = false;
     isListingMode = false;
     updateFloatingButtonVisibility();
 
-    // Closing an article forgets this site (turns sticky mode off). Closing the TOC
-    // view only hides it for this page, so articles on the site still auto-open.
-    if (!wasListingMode) {
-      await disableReaderForOrigin();
+    // Closing only hides the reader for this page; the site stays remembered.
+    // Auto-open is turned off for a site with the "Auto-open on this site" setting.
+  }
+
+  /**
+   * Whether this origin is in the auto-open (sticky) list
+   */
+  async function isReaderEnabledForOrigin() {
+    try {
+      const result = await browserAPI.storage.local.get('readerEnabledOrigins');
+      return (result.readerEnabledOrigins || []).includes(window.location.origin);
+    } catch (e) {
+      console.warn('Failed to read enabled origins:', e);
+      return false;
     }
   }
 
@@ -1267,6 +1287,8 @@
       toggleGrayscale: shadowRoot.getElementById('toggle-grayscale'),
       toggleNoImages: shadowRoot.getElementById('toggle-no-images'),
       toggleListingMode: shadowRoot.getElementById('toggle-listing-mode'),
+      toggleSiteAuto: shadowRoot.getElementById('toggle-site-auto'),
+      siteAutoName: shadowRoot.getElementById('site-auto-name'),
       toggleFloatingButton: shadowRoot.getElementById('toggle-floating-button'),
       floatingButtonSizeSlider: shadowRoot.getElementById('floating-button-size-slider'),
       floatingButtonSizeValue: shadowRoot.getElementById('floating-button-size-value'),
@@ -1689,9 +1711,7 @@
 
       // Settings
       if (elements.btnSettings) {
-        elements.btnSettings.addEventListener('click', () => {
-          elements.settingsPanel.classList.remove('hidden');
-        });
+        elements.btnSettings.addEventListener('click', openSettingsPanel);
       }
       if (elements.btnCloseSettings) {
         elements.btnCloseSettings.addEventListener('click', () => {
@@ -1820,6 +1840,17 @@
         elements.safeAreaSlider.addEventListener('change', saveSettings);
       }
 
+      // Per-site auto-open toggle
+      if (elements.toggleSiteAuto) {
+        elements.toggleSiteAuto.addEventListener('change', (e) => {
+          if (e.target.checked) {
+            enableReaderForOrigin();
+          } else {
+            disableReaderForOrigin();
+          }
+        });
+      }
+
       // Listing mode toggle
       if (elements.toggleListingMode) {
         elements.toggleListingMode.addEventListener('change', (e) => {
@@ -1853,6 +1884,17 @@
         clearTimeout(resizeTimeout);
         resizeTimeout = setTimeout(repaginate, 150);
       });
+    }
+
+    // Show the settings panel with the per-site auto-open state refreshed from storage
+    async function openSettingsPanel() {
+      elements.settingsPanel.classList.remove('hidden');
+      if (elements.siteAutoName) {
+        elements.siteAutoName.textContent = window.location.hostname.replace(/^www\./, '');
+      }
+      if (elements.toggleSiteAuto) {
+        elements.toggleSiteAuto.checked = await isReaderEnabledForOrigin();
+      }
     }
 
     function handleKeydown(e) {
@@ -1903,7 +1945,7 @@
         case 's':
         case 'S':
           if (!e.ctrlKey && !e.metaKey) {
-            elements.settingsPanel.classList.remove('hidden');
+            openSettingsPanel();
           }
           break;
       }
