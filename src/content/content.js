@@ -614,14 +614,19 @@
       readerOverlay.style.display = 'none';
     }
 
+    const wasListingMode = isListingMode;
+
     document.title = originalTitle;
     document.body.style.overflow = '';
     isReaderActive = false;
     isListingMode = false;
     updateFloatingButtonVisibility();
 
-    // Remove this origin from enabled origins list
-    await disableReaderForOrigin();
+    // Closing an article forgets this site (turns sticky mode off). Closing the TOC
+    // view only hides it for this page, so articles on the site still auto-open.
+    if (!wasListingMode) {
+      await disableReaderForOrigin();
+    }
   }
 
   /**

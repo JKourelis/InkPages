@@ -71,6 +71,9 @@ Note: Temporary add-ons are removed when Firefox closes.
 
 ## Changelog
 
+### v1.1.2
+- Closing the TOC view on a homepage no longer turns off auto-reading for the whole site; only closing an article does
+
 ### v1.1.1
 - Short articles (reviews, news briefs) now open as articles instead of the TOC view, when the page marks itself as an article (og:type, article:published_time or JSON-LD)
 - Fix duplicate ids when a site's article uses the same id as the reader
