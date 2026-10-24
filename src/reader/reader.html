@@ -165,6 +165,17 @@
         </div>
       </div>
 
+      <!-- Links -->
+      <div class="setting-group">
+        <label class="setting-label">Links</label>
+        <div class="setting-options link-options">
+          <button class="font-btn link-btn" data-links="normal">Normal</button>
+          <button class="font-btn link-btn" data-links="plain">Plain text</button>
+          <button class="font-btn link-btn" data-links="hide">Hide link blocks</button>
+        </div>
+        <p class="setting-hint">"Hide link blocks" removes paragraphs and lists that are mostly links, such as "Read more" and related-article promos</p>
+      </div>
+
       <!-- Behavior Options -->
       <div class="setting-group">
         <label class="setting-label">Behavior</label>
@@ -175,18 +186,23 @@
           </label>
         </div>
         <p class="setting-hint">When enabled, non-article pages show a clean list of links</p>
+      </div>
 
-        <div class="setting-toggles" style="margin-top:10px;">
+      <!-- Floating Button -->
+      <div class="setting-group">
+        <label class="setting-label">Floating Button</label>
+        <div class="setting-toggles">
           <label class="toggle-label">
             <input type="checkbox" id="toggle-floating-button" class="toggle-input">
-            <span class="toggle-text">Show a floating button that activates the reader</span>
+            <span class="toggle-text">Show "Ink" button on pages</span>
           </label>
         </div>
         <div class="setting-slider" style="margin-top:10px;">
+          <span class="toggle-text">Size</span>
           <input type="range" id="floating-button-size-slider" min="32" max="84" value="50" step="2">
           <span id="floating-button-size-value">50px</span>
         </div>
-        <p class="setting-hint">An "Ink" button appears on the page and can be dragged</p>
+        <p class="setting-hint">Tap the button to open the reader; drag it to move it</p>
       </div>
 
       <!-- Safe Area (for browser address bar) -->
@@ -197,36 +213,6 @@
           <span id="safe-area-value">0px</span>
         </div>
         <p class="setting-hint">Adjust if browser address bar overlaps content</p>
-      </div>
-
-      <!-- Debug: Pagination Fixes (for testing) -->
-      <div class="setting-group">
-        <label class="setting-label">TOC Pagination Fixes</label>
-        <div class="setting-toggles">
-          <label class="toggle-label">
-            <input type="checkbox" id="debug-zero-ul" class="toggle-input">
-            <span class="toggle-text">1. Zero all ul/li styles</span>
-          </label>
-          <label class="toggle-label">
-            <input type="checkbox" id="debug-force-listing" class="toggle-input">
-            <span class="toggle-text">2. Force listing !important</span>
-          </label>
-          <label class="toggle-label" style="opacity:0.5;">
-            <input type="checkbox" id="debug-round-pixels" class="toggle-input" checked disabled>
-            <span class="toggle-text">3. Round pixel values (always on)</span>
-          </label>
-          <label class="toggle-label">
-            <input type="checkbox" id="debug-calc-width" class="toggle-input">
-            <span class="toggle-text">4. Use calculated width</span>
-          </label>
-          <label class="toggle-label">
-            <input type="checkbox" id="debug-int-column" class="toggle-input">
-            <span class="toggle-text">5. Integer column width</span>
-          </label>
-        </div>
-        <p class="setting-hint">Toggle fixes and tap Recalculate below</p>
-        <button id="btn-debug-recalc" class="btn-primary" style="margin-top:10px;width:100%;">Recalculate Pagination</button>
-        <div id="debug-info" style="margin-top:10px;font-size:11px;font-family:monospace;background:#f0f0f0;padding:8px;border-radius:4px;color:#333;"></div>
       </div>
 
       <!-- Support footer -->
@@ -257,6 +243,5 @@
     <p>Extracting article...</p>
   </div>
 
-  <script src="reader.js"></script>
 </body>
 </html>

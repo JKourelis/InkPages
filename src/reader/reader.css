@@ -147,6 +147,20 @@ body.justify-text #article-content,
   -webkit-hyphens: auto;
 }
 
+/* Link modes - article content only (listing/TOC mode is made of links) */
+:host(.links-plain) #article-content a:not(.listing-content a),
+:host(.links-hide) #article-content a:not(.listing-content a) {
+  color: inherit;
+  text-decoration: none;
+  pointer-events: none;
+  cursor: text;
+}
+
+/* Blocks tagged by markLinkBlocks() in content.js */
+:host(.links-hide) #article-content .inkpages-link-block {
+  display: none !important;
+}
+
 ::selection {
   background-color: var(--selection-bg);
 }

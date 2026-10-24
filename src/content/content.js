@@ -28,11 +28,14 @@
   let originalTitle = document.title;
   let articleData = null;
   let listingData = null;
+  // Article parsed by isArticlePage(), reused on activation so Readability only runs once
+  let detectedArticle = null;
   const isLikelyAndroid = /Android/i.test(navigator.userAgent);
   const floatingButtonPositionKey = 'floatingButtonPosition';
   let floatingButtonEnabled = isLikelyAndroid;
   let floatingButtonSize = 50;
   let floatingButtonElement = null;
+  let floatingButtonInner = null;
 
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
@@ -46,62 +49,54 @@
 
   function setFloatingButtonSize(size) {
     floatingButtonSize = normalizeFloatingButtonSize(size);
-    if (!floatingButtonElement) return;
+    if (!floatingButtonInner) return;
 
     const sizePx = Math.round(floatingButtonSize);
     const fontSizePx = Math.max(11, Math.round(sizePx * 0.26));
-    floatingButtonElement.style.width = `${sizePx}px`;
-    floatingButtonElement.style.height = `${sizePx}px`;
-    floatingButtonElement.style.fontSize = `${fontSizePx}px`;
+    floatingButtonInner.style.width = `${sizePx}px`;
+    floatingButtonInner.style.height = `${sizePx}px`;
+    floatingButtonInner.style.fontSize = `${fontSizePx}px`;
   }
 
-  function ensureFloatingButtonStyles() {
-    if (document.getElementById('inkpages-floating-button-style')) return;
+  // Styles live inside the button's own shadow root so host page CSS can't restyle it
+  const floatingButtonStyles = `
+    button {
+      width: 50px;
+      height: 50px;
+      margin: 0;
+      padding: 0;
+      border: 2px solid #111;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.35);
+      color: #111;
+      font: 600 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0.2px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      backdrop-filter: blur(1px);
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-user-drag: none;
+      transition: opacity 0.15s ease, transform 0.15s ease;
+    }
 
-    const style = document.createElement('style');
-    style.id = 'inkpages-floating-button-style';
-    style.textContent = `
-      #inkpages-floating-button {
-        position: fixed;
-        right: 16px;
-        bottom: 96px;
-        width: 50px;
-        height: 50px;
-        border: 2px solid #111;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.35);
-        color: #111;
-        font: 600 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        letter-spacing: 0.2px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        z-index: 2147483646;
-        backdrop-filter: blur(1px);
-        touch-action: none;
-        user-select: none;
-        -webkit-user-select: none;
-        -webkit-user-drag: none;
-        transition: opacity 0.15s ease, transform 0.15s ease;
-      }
+    button:hover {
+      opacity: 0.95;
+    }
 
-      #inkpages-floating-button:hover {
-        opacity: 0.95;
-      }
-
-      #inkpages-floating-button.dragging {
-        opacity: 0.98;
-        transform: scale(1.05);
-      }
-    `;
-    (document.head || document.documentElement).appendChild(style);
-  }
+    button.dragging {
+      opacity: 0.98;
+      transform: scale(1.05);
+    }
+  `;
 
   function updateFloatingButtonVisibility() {
     if (!floatingButtonElement) return;
     const shouldShow = floatingButtonEnabled && !isReaderActive;
-    floatingButtonElement.style.display = shouldShow ? 'flex' : 'none';
+    floatingButtonElement.style.display = shouldShow ? 'block' : 'none';
   }
 
   async function loadFloatingButtonPosition() {
@@ -148,6 +143,12 @@
     button.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
+      // Pointer taps are handled on pointerup; keyboard activation (Enter/Space) arrives as a click with detail 0
+      if (event.detail === 0) {
+        toggleReaderMode().catch(error => {
+          console.error('Floating button toggle failed:', error);
+        });
+      }
     });
 
     button.addEventListener('pointerdown', (event) => {
@@ -231,22 +232,25 @@
   async function ensureFloatingButton() {
     if (floatingButtonElement) return floatingButtonElement;
 
-    // Reuse an existing button if it is already present in DOM (e.g. after reinjection/hot reload).
-    const existingButtons = document.querySelectorAll('#inkpages-floating-button');
-    if (existingButtons.length > 0) {
-      floatingButtonElement = existingButtons[0];
-      // Keep only one instance.
-      for (let i = 1; i < existingButtons.length; i++) {
-        existingButtons[i].remove();
-      }
-      setFloatingButtonSize(floatingButtonSize);
-      updateFloatingButtonVisibility();
-      return floatingButtonElement;
-    }
+    // Remove a stale host left behind by a previous injection (its closed shadow root can't be reused)
+    document.querySelectorAll('inkpages-button').forEach(el => el.remove());
 
-    ensureFloatingButtonStyles();
+    // Custom element name so generic page selectors (div, button, ...) don't match the host
+    const host = document.createElement('inkpages-button');
+    host.style.cssText = `
+      all: initial;
+      position: fixed;
+      right: 16px;
+      bottom: 96px;
+      z-index: 2147483646;
+      display: none;
+    `;
+    const buttonRoot = host.attachShadow({ mode: 'closed' });
+
+    const style = document.createElement('style');
+    style.textContent = floatingButtonStyles;
+
     const button = document.createElement('button');
-    button.id = 'inkpages-floating-button';
     button.type = 'button';
     button.draggable = false;
     button.textContent = 'Ink';
@@ -254,8 +258,10 @@
     button.setAttribute('aria-label', 'Open InkPages reader');
     setupFloatingButtonInteractions(button);
 
-    document.body.appendChild(button);
-    floatingButtonElement = button;
+    buttonRoot.append(style, button);
+    document.body.appendChild(host);
+    floatingButtonElement = host;
+    floatingButtonInner = button;
     setFloatingButtonSize(floatingButtonSize);
 
     const savedPosition = await loadFloatingButtonPosition();
@@ -275,6 +281,7 @@
     if (!floatingButtonElement) return;
     floatingButtonElement.remove();
     floatingButtonElement = null;
+    floatingButtonInner = null;
   }
 
   function setFloatingButtonEnabled(enabled) {
@@ -305,6 +312,19 @@
     if (floatingButtonEnabled) {
       await ensureFloatingButton();
     }
+
+    // Apply setting changes made in another tab without needing a reload
+    browserAPI.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== 'sync' || !changes.readerSettings) return;
+      const newSettings = changes.readerSettings.newValue || {};
+      if (newSettings.floatingButtonSize !== undefined) {
+        setFloatingButtonSize(newSettings.floatingButtonSize);
+      }
+      if (typeof newSettings.floatingButtonEnabled === 'boolean' &&
+          newSettings.floatingButtonEnabled !== floatingButtonEnabled) {
+        setFloatingButtonEnabled(newSettings.floatingButtonEnabled);
+      }
+    });
 
     window.addEventListener('resize', () => {
       if (!floatingButtonElement) return;
@@ -421,16 +441,14 @@
     const isNotListingPage = !hasListingStructure || substantialParagraphs > 5;
 
     // Final check: try to extract with Readability and see if we get good content
+    detectedArticle = null;
     if (hasSubstantialContent && isNotListingPage) {
       try {
-        const documentClone = document.cloneNode(true);
-        const reader = new Readability(documentClone, { charThreshold: 500 });
-        const parsed = reader.parse();
-
-        if (parsed && parsed.textContent) {
-          const wordCount = parsed.textContent.trim().split(/\s+/).length;
+        const extracted = extractArticle();
+        if (extracted) {
+          detectedArticle = extracted;
           // Article should have at least 200 words of extracted content
-          return wordCount > 200;
+          return extracted.wordCount > 200;
         }
       } catch (e) {
         console.warn('Readability check failed:', e);
@@ -495,8 +513,12 @@
     if (isReaderActive) return;
 
     try {
-      // Extract article
-      articleData = extractArticle();
+      // Extract article (reuse the parse from article detection if it was for this URL)
+      const detected = detectedArticle;
+      detectedArticle = null;
+      articleData = (detected && detected.sourceUrl === window.location.href)
+        ? detected
+        : extractArticle();
 
       if (!articleData) {
         console.warn('Could not extract article from this page');
@@ -523,6 +545,8 @@
    */
   async function activateListingMode() {
     if (isReaderActive) return;
+
+    detectedArticle = null;
 
     try {
       // Extract listing structure
@@ -926,43 +950,6 @@
   function sanitizeHTML(html) {
     const doc = new DOMParser().parseFromString(html, 'text/html');
 
-    // Remove all inline event handlers
-    const allElements = doc.body.querySelectorAll('*');
-    const eventAttributes = [
-      'onabort', 'onblur', 'onchange', 'onclick', 'ondblclick', 'onerror',
-      'onfocus', 'oninput', 'onkeydown', 'onkeypress', 'onkeyup', 'onload',
-      'onmousedown', 'onmousemove', 'onmouseout', 'onmouseover', 'onmouseup',
-      'onreset', 'onresize', 'onscroll', 'onselect', 'onsubmit', 'onunload',
-      'onbeforeunload', 'onhashchange', 'onmessage', 'onoffline', 'ononline',
-      'onpagehide', 'onpageshow', 'onpopstate', 'onstorage', 'onanimationend',
-      'onanimationiteration', 'onanimationstart', 'ontransitionend', 'onwheel',
-      'oncopy', 'oncut', 'onpaste', 'ondrag', 'ondragend', 'ondragenter',
-      'ondragleave', 'ondragover', 'ondragstart', 'ondrop', 'oncontextmenu'
-    ];
-
-    allElements.forEach(el => {
-      // Remove event handler attributes
-      eventAttributes.forEach(attr => {
-        el.removeAttribute(attr);
-      });
-
-      // Remove javascript: URLs from href and src
-      ['href', 'src', 'action', 'formaction', 'xlink:href'].forEach(attr => {
-        const value = el.getAttribute(attr);
-        if (value && value.trim().toLowerCase().startsWith('javascript:')) {
-          el.removeAttribute(attr);
-        }
-      });
-
-      // Remove data: URLs from links (but keep in img src for base64 images)
-      if (el.tagName !== 'IMG') {
-        const href = el.getAttribute('href');
-        if (href && href.trim().toLowerCase().startsWith('data:')) {
-          el.removeAttribute('href');
-        }
-      }
-    });
-
     // Remove script and style elements (Readability should have done this, but double-check)
     doc.body.querySelectorAll('script, style, noscript').forEach(el => el.remove());
 
@@ -970,9 +957,48 @@
     doc.body.querySelectorAll('form, input, button, select, textarea').forEach(el => el.remove());
 
     // Remove iframes, objects, embeds
-    doc.body.querySelectorAll('iframe, object, embed, applet').forEach(el => el.remove());
+    doc.body.querySelectorAll('iframe, object, embed, applet, frame, frameset').forEach(el => el.remove());
+
+    // Remove elements that can change navigation or rewrite attributes (SVG <set>/<animate> can set href)
+    doc.body.querySelectorAll('base, meta, link, set, animate').forEach(el => el.remove());
+
+    doc.body.querySelectorAll('*').forEach(el => {
+      for (const attr of Array.from(el.attributes)) {
+        const name = attr.name.toLowerCase();
+
+        // Remove every inline event handler (onclick, onpointerdown, ontoggle, ...)
+        if (name.startsWith('on') || name === 'srcdoc') {
+          el.removeAttribute(attr.name);
+          continue;
+        }
+
+        // Only allow safe URL schemes; data: only for media sources (base64 images)
+        if (URL_ATTRIBUTES.includes(name)) {
+          const allowData = name === 'src' || name === 'poster';
+          if (!isSafeUrl(attr.value, allowData)) {
+            el.removeAttribute(attr.name);
+          }
+        }
+      }
+    });
 
     return doc.body.innerHTML;
+  }
+
+  const URL_ATTRIBUTES = ['href', 'src', 'action', 'formaction', 'xlink:href', 'poster', 'background', 'cite'];
+  const SAFE_URL_PROTOCOLS = ['http:', 'https:', 'mailto:'];
+
+  /**
+   * Check a URL attribute value against the allowed schemes.
+   * Parsing with URL normalises tricks like "java\tscript:" the same way the browser would.
+   */
+  function isSafeUrl(value, allowData) {
+    try {
+      const protocol = new URL(value, document.baseURI).protocol;
+      return SAFE_URL_PROTOCOLS.includes(protocol) || (allowData && protocol === 'data:');
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -1207,6 +1233,7 @@
       floatingButtonSizeSlider: shadowRoot.getElementById('floating-button-size-slider'),
       floatingButtonSizeValue: shadowRoot.getElementById('floating-button-size-value'),
       sizeBtns: shadowRoot.querySelectorAll('.size-btn'),
+      linkBtns: shadowRoot.querySelectorAll('.link-btn'),
       safeAreaSlider: shadowRoot.getElementById('safe-area-slider'),
       safeAreaValue: shadowRoot.getElementById('safe-area-value')
     };
@@ -1218,6 +1245,8 @@
     let currentPage = 0;
     let totalPages = 1;
     let pageWidth = 0;
+    // Don't save reading position until the saved one has been restored, or the initial page 0 overwrites it
+    let positionRestored = false;
     let settings = {
       fontFamily: 'serif',
       fontSize: 18,
@@ -1230,6 +1259,7 @@
       noImages: false,
       safeAreaManual: 0,
       listingModeEnabled: true,
+      linkMode: 'normal',  // 'normal' | 'plain' | 'hide'
       floatingButtonEnabled: isLikelyAndroid,
       floatingButtonSize: 50
     };
@@ -1281,17 +1311,22 @@
       root.classList.toggle('justify-text', settings.justifyText);
       root.classList.toggle('grayscale', settings.grayscale);
       root.classList.toggle('no-images', settings.noImages);
+      root.classList.toggle('links-plain', settings.linkMode === 'plain');
+      root.classList.toggle('links-hide', settings.linkMode === 'hide');
 
       updateSettingsUI();
 
-      if (articleData && elements.articleContent) {
-        setTimeout(() => {
-          currentPage = 0;
-          window.__einkReaderState.currentPage = 0;
-          updateHeaderSpacer();
-          setupPagination();
-        }, 50);
+      if ((articleData || listingData) && elements.articleContent) {
+        setTimeout(repaginate, 50);
       }
+    }
+
+    // Re-run pagination after a layout change, staying at the same relative position in the text
+    function repaginate() {
+      const progress = totalPages > 1 ? currentPage / totalPages : 0;
+      updateHeaderSpacer();
+      setupPagination();
+      goToPage(Math.min(totalPages - 1, Math.round(progress * totalPages)));
     }
 
     function updateSettingsUI() {
@@ -1301,6 +1336,10 @@
 
       elements.themeBtns.forEach(btn => {
         btn.classList.toggle('active', btn.dataset.theme === settings.theme);
+      });
+
+      elements.linkBtns.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.links === settings.linkMode);
       });
 
       if (elements.fontSizeSlider) {
@@ -1385,7 +1424,6 @@
       if (!viewport || !content) return;
 
       const viewportRect = viewport.getBoundingClientRect();
-      const dbg = window.__debugOptions || {};
 
       // Always round pixel values to prevent sub-pixel drift on narrow screens (v1.0.8 fix)
       const viewportWidth = Math.floor(viewportRect.width);
@@ -1419,9 +1457,7 @@
       content.style.height = (viewportHeight - descenderBuffer) + 'px';
       content.style.width = 'max-content';
 
-      // Option 6: Force integer columnWidth
-      const colWidth = dbg.integerColumnWidth ? Math.floor(viewportWidth) : viewportWidth;
-      content.style.columnWidth = colWidth + 'px';
+      content.style.columnWidth = viewportWidth + 'px';
       content.style.columnGap = columnGap + 'px';
       content.style.columnFill = 'auto';
 
@@ -1438,14 +1474,7 @@
         totalPages = Math.max(1, totalPages - 1);
       }
 
-      // Option 4: Use calculated width instead of scrollWidth
-      let finalWidth;
-      if (dbg.useCalculatedWidth) {
-        finalWidth = (totalPages - 1) * pageWidth + viewportWidth;
-      } else {
-        finalWidth = actualScrollWidth;
-      }
-      content.style.width = finalWidth + 'px';
+      content.style.width = actualScrollWidth + 'px';
 
       currentPage = Math.min(currentPage, Math.max(0, totalPages - 1));
 
@@ -1503,9 +1532,23 @@
       }
     }
 
+    // Key on the URL without the #fragment and utm_* tracking parameters
+    function readingPositionKey() {
+      try {
+        const url = new URL(articleData.sourceUrl);
+        url.hash = '';
+        for (const param of Array.from(url.searchParams.keys())) {
+          if (param.startsWith('utm_')) url.searchParams.delete(param);
+        }
+        return 'pos_' + url.href;
+      } catch {
+        return 'pos_' + articleData.sourceUrl;
+      }
+    }
+
     async function saveReadingPosition() {
-      if (!articleData || !articleData.sourceUrl) return;
-      const key = 'pos_' + articleData.sourceUrl.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 100);
+      if (!positionRestored || isListingMode || !articleData || !articleData.sourceUrl) return;
+      const key = readingPositionKey();
 
       try {
         const positions = (await browserAPI.storage.local.get('readingPositions')).readingPositions || {};
@@ -1524,18 +1567,35 @@
     }
 
     async function loadReadingPosition() {
-      if (!articleData || !articleData.sourceUrl) return 0;
-      const key = 'pos_' + articleData.sourceUrl.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 100);
+      if (!articleData || !articleData.sourceUrl) return null;
 
       try {
         const positions = (await browserAPI.storage.local.get('readingPositions')).readingPositions || {};
-        if (positions[key]) {
-          return positions[key].page;
-        }
+        return positions[readingPositionKey()] || null;
       } catch (error) {
         console.warn('Failed to load reading position:', error);
       }
-      return 0;
+      return null;
+    }
+
+    /**
+     * Paginate freshly rendered content, starting from page 0 (articles: the saved position).
+     * Saved as a fraction so it survives font/width changes between sessions.
+     */
+    async function paginateNewContent() {
+      positionRestored = false;
+      currentPage = 0;
+      updateHeaderSpacer();
+      setupPagination();
+
+      if (!isListingMode) {
+        const saved = await loadReadingPosition();
+        if (saved && saved.page > 0) {
+          const progress = saved.totalPages > 1 ? saved.page / saved.totalPages : 0;
+          goToPage(Math.min(totalPages - 1, Math.round(progress * totalPages)));
+        }
+      }
+      positionRestored = true;
     }
 
     function setupEventListeners() {
@@ -1673,6 +1733,15 @@
         });
       });
 
+      // Link mode buttons
+      elements.linkBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          settings.linkMode = btn.dataset.links;
+          applySettings();
+          saveSettings();
+        });
+      });
+
       // Toggles
       if (elements.toggleBold) {
         elements.toggleBold.addEventListener('change', (e) => {
@@ -1744,14 +1813,8 @@
       let resizeTimeout;
       window.addEventListener('resize', () => {
         clearTimeout(resizeTimeout);
-        resizeTimeout = setTimeout(() => {
-          updateHeaderSpacer();
-          setupPagination();
-        }, 150);
+        resizeTimeout = setTimeout(repaginate, 150);
       });
-
-      // Debug controls for pagination fixes
-      setupDebugControls();
     }
 
     function handleKeydown(e) {
@@ -1931,7 +1994,7 @@
       `;
 
       return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${escapeHtml(articleData.lang || 'en')}" dir="${escapeHtml(articleData.dir || 'ltr')}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -1955,147 +2018,6 @@
 </html>`;
     }
 
-    // Debug options for testing pagination fixes (controlled via Settings panel)
-    const debugOptions = {
-      zeroUlLiStyles: false,
-      forceListingInline: false,
-      roundPixels: false,
-      useCalculatedWidth: false,
-      integerColumnWidth: false
-    };
-
-    function setupDebugControls() {
-      try {
-        // Wire up debug checkboxes in settings panel
-        const debugZeroUl = shadowRoot.querySelector('#debug-zero-ul');
-      const debugForceListing = shadowRoot.querySelector('#debug-force-listing');
-      const debugRoundPixels = shadowRoot.querySelector('#debug-round-pixels');
-      const debugCalcWidth = shadowRoot.querySelector('#debug-calc-width');
-      const debugIntColumn = shadowRoot.querySelector('#debug-int-column');
-      const debugRecalcBtn = shadowRoot.querySelector('#btn-debug-recalc');
-
-      if (debugZeroUl) {
-        debugZeroUl.addEventListener('change', () => {
-          debugOptions.zeroUlLiStyles = debugZeroUl.checked;
-        });
-      }
-      if (debugForceListing) {
-        debugForceListing.addEventListener('change', () => {
-          debugOptions.forceListingInline = debugForceListing.checked;
-        });
-      }
-      if (debugRoundPixels) {
-        debugRoundPixels.addEventListener('change', () => {
-          debugOptions.roundPixels = debugRoundPixels.checked;
-        });
-      }
-      if (debugCalcWidth) {
-        debugCalcWidth.addEventListener('change', () => {
-          debugOptions.useCalculatedWidth = debugCalcWidth.checked;
-        });
-      }
-      if (debugIntColumn) {
-        debugIntColumn.addEventListener('change', () => {
-          debugOptions.integerColumnWidth = debugIntColumn.checked;
-        });
-      }
-
-      if (debugRecalcBtn) {
-        debugRecalcBtn.addEventListener('click', () => {
-          applyDebugFixes();
-          setupPagination();
-          updateDebugInfo();
-        });
-      }
-
-      // Store options globally for setupPagination to access
-      window.__debugOptions = debugOptions;
-      } catch (e) {
-        console.error('InkPages: Error setting up debug controls:', e);
-      }
-    }
-
-    function applyDebugFixes() {
-      // Remove previous debug styles
-      const prevStyle = shadowRoot.querySelector('#debug-styles');
-      if (prevStyle) prevStyle.remove();
-
-      let css = '';
-
-      if (debugOptions.zeroUlLiStyles) {
-        css += `
-          #article-content ul, #article-content ol, #article-content li {
-            padding: 0 !important;
-            margin: 0 !important;
-          }
-        `;
-      }
-
-      if (debugOptions.forceListingInline) {
-        css += `
-          #article-content .listing-items,
-          #article-content .listing-sub-links {
-            padding: 0 !important;
-            margin: 0 !important;
-            list-style: none !important;
-          }
-          #article-content .listing-item,
-          #article-content .listing-sub-links li {
-            padding: 0 !important;
-            margin: 0 !important;
-          }
-          #article-content .listing-sub-links {
-            padding-left: 0.75em !important;
-            margin-left: 0.25em !important;
-            border-left: 2px solid #ccc !important;
-          }
-        `;
-      }
-
-      if (css) {
-        const style = document.createElement('style');
-        style.id = 'debug-styles';
-        style.textContent = css;
-        shadowRoot.appendChild(style);
-      }
-
-      // Update global options
-      window.__debugOptions = debugOptions;
-    }
-
-    function updateDebugInfo() {
-      const infoDiv = shadowRoot.querySelector('#debug-info');
-      if (!infoDiv) return;
-
-      const viewport = elements.contentViewport;
-      const content = elements.articleContent;
-
-      if (!viewport || !content) {
-        infoDiv.innerHTML = 'Elements not found';
-        return;
-      }
-
-      const rect = viewport.getBoundingClientRect();
-      const listingItems = content.querySelector('.listing-items');
-      const listingItemsStyle = listingItems ? getComputedStyle(listingItems) : null;
-      const firstLi = content.querySelector('.listing-item');
-      const firstLiStyle = firstLi ? getComputedStyle(firstLi) : null;
-      const subLinks = content.querySelector('.listing-sub-links');
-      const subLinksStyle = subLinks ? getComputedStyle(subLinks) : null;
-
-      infoDiv.innerHTML = `
-        <b>Viewport:</b> ${rect.width.toFixed(1)} x ${rect.height.toFixed(1)}<br>
-        <b>scrollWidth:</b> ${content.scrollWidth}<br>
-        <b>pageWidth:</b> ${pageWidth}<br>
-        <b>totalPages:</b> ${totalPages}<br>
-        <b>currentPage:</b> ${currentPage}<br>
-        <hr style="margin:5px 0;border:none;border-top:1px solid #ccc;">
-        <b>.listing-items pad-L:</b> ${listingItemsStyle ? listingItemsStyle.paddingLeft : 'N/A'}<br>
-        <b>.listing-item margin-B:</b> ${firstLiStyle ? firstLiStyle.marginBottom : 'N/A'}<br>
-        <b>.listing-sub-links pad-L:</b> ${subLinksStyle ? subLinksStyle.paddingLeft : 'N/A'}
-      `;
-    }
-
     // Expose functions for external use
     window.__einkReaderFunctions = {
       nextPage,
@@ -2104,7 +2026,7 @@
       setupPagination,
       updateHeaderSpacer,
       applySettings,
-      loadReadingPosition
+      paginateNewContent
     };
   }
 
@@ -2146,6 +2068,9 @@
       img.style.breakInside = 'avoid';
     });
 
+    // Tag link-dominated blocks so the "Hide link blocks" setting can hide them
+    markLinkBlocks(elements.articleContent);
+
     // Process links - intercept for sticky reader mode
     const links = elements.articleContent.querySelectorAll('a[href]');
     links.forEach(link => {
@@ -2154,15 +2079,10 @@
 
     // Set up pagination after content is rendered
     requestAnimationFrame(() => {
-      requestAnimationFrame(async () => {
+      requestAnimationFrame(() => {
         const funcs = window.__einkReaderFunctions;
         if (funcs) {
-          funcs.updateHeaderSpacer();
-          funcs.setupPagination();
-          const savedPage = await funcs.loadReadingPosition();
-          if (savedPage > 0) {
-            funcs.goToPage(savedPage);
-          }
+          funcs.paginateNewContent();
         }
       });
     });
@@ -2249,11 +2169,51 @@
       requestAnimationFrame(() => {
         const funcs = window.__einkReaderFunctions;
         if (funcs) {
-          funcs.updateHeaderSpacer();
-          funcs.setupPagination();
+          funcs.paginateNewContent();
         }
       });
     });
+  }
+
+  /**
+   * Mark blocks that are mostly link text ("Read more: ...", "Related: ...", promo link lists)
+   * with .inkpages-link-block. CSS hides them when the link mode is 'hide'.
+   */
+  function markLinkBlocks(container) {
+    const blockSelector = 'p, li, ul, ol, dl, div, section, aside, blockquote, figure, table';
+    const linkDensityThreshold = 0.6;
+    const totalLength = normalizedTextLength(container);
+    if (!totalLength) return;
+
+    // querySelectorAll returns ancestors before descendants, so marked containers skip their children
+    for (const block of container.querySelectorAll(blockSelector)) {
+      if (block.closest('.inkpages-link-block')) continue;
+
+      const textLength = normalizedTextLength(block);
+      // Never hide a block holding most of the article, even on link-heavy pages
+      if (!textLength || textLength > totalLength * 0.5) continue;
+
+      let linkLength = 0;
+      block.querySelectorAll('a[href]').forEach(a => {
+        linkLength += normalizedTextLength(a);
+      });
+
+      if (linkLength / textLength >= linkDensityThreshold) {
+        block.classList.add('inkpages-link-block');
+      }
+    }
+
+    // A short heading directly above a hidden block ("Related stories") goes with it
+    container.querySelectorAll('h2, h3, h4, h5, h6').forEach(heading => {
+      const next = heading.nextElementSibling;
+      if (next && next.classList.contains('inkpages-link-block') && normalizedTextLength(heading) < 80) {
+        heading.classList.add('inkpages-link-block');
+      }
+    });
+  }
+
+  function normalizedTextLength(el) {
+    return el.textContent.replace(/\s+/g, ' ').trim().length;
   }
 
   /**

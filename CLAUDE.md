@@ -44,6 +44,8 @@ InkPages is a Firefox extension that provides Safari-like reader mode with pagin
 6. **Link Handling**: Same-origin links navigate normally, external links open in new tab
 7. **HTML Sanitization**: Strips event handlers, javascript: URLs, scripts, forms, iframes
 8. **Cookie/Embed Filtering**: Removes social media embed placeholders and cookie consent blocks
+9. **Link Modes**: Links shown normally, as plain text, or link-heavy blocks hidden
+10. **Floating Button**: Optional draggable button to open the reader (default on Android)
 
 ## Technical Details
 
@@ -153,7 +155,6 @@ InkPages/
 | content.js | 99% | Change `browser` to `chrome` (or use polyfill) |
 | reader.html | 100% | None |
 | reader.css | 100% | None |
-| reader.js | 100% | None |
 | background.js | 70% | Rewrite for service worker pattern |
 | Readability.js | 100% | None |
 
@@ -247,7 +248,7 @@ Safari on iOS/macOS supports the WebExtensions API (same standard as Firefox/Chr
   - Maximizes reading space on e-ink devices where screen real estate is precious
   - Compact title is shown in the top bar, so context is preserved
   - Full screen height is used on pages 2+ (no wasted space)
-- **Implementation**: `content.js` line ~1114 - header gets `.minimized` class (display: none)
+- **Implementation**: `content.js` line ~1505 - header gets `.minimized` class (display: none)
 - **DO NOT REMOVE THIS BEHAVIOR** - it was added intentionally in v1.0.3
 
 ### Solution: Absolute Header + Content Spacer (v1.0.4)
@@ -367,18 +368,36 @@ if (navigator.canShare && navigator.canShare({ files: [file] })) {
 - `content.js`: `exportArticle()`, `generateExportHTML()`
 - `reader.html`: Export button in header-right
 
-### Debug Options (v1.0.9 - Temporary)
+### Reading Position Restore (v1.1.0)
 
-Debug options are currently visible in Settings for testing pagination fixes:
-1. Zero all ul/li styles
-2. Force listing !important
-3. Round pixel values (now always on, shown as disabled)
-4. Use calculated width
-5. Integer column width
+**Root Cause**: Before v1.1.0 the saved position was never actually restored. `applySettings()` (run once settings load) reset `currentPage = 0` on a 50ms timer, which fired after the restore and also saved page 0 over the stored position. Every settings change also jumped back to page 1.
 
-**TODO**: Remove debug panel in next release if v1.0.9 pagination fix is confirmed working.
+**Fix**:
+- `paginateNewContent()` paginates freshly rendered content and restores the saved position; saving is blocked (`positionRestored` flag) until the restore has happened
+- `repaginate()` re-runs pagination after settings changes and resizes at the same *fraction* of the article
+- Positions are stored as `{page, totalPages}` and restored proportionally, so they survive font/width changes
+- Key is `pos_` + URL without `#fragment` and `utm_*` params (the old key truncated to 100 chars, so long URLs collided)
 
-**Location**: `reader.html` settings panel, `content.js` `setupDebugControls()`
+Verified in headless Firefox: before the fix, page 4/25 came back as 1/25 after a reload.
+
+### Link Modes (v1.1.0, issue #2)
+
+Setting `linkMode`: `'normal'` | `'plain'` | `'hide'`, applied as `.links-plain` / `.links-hide` classes on the shadow host.
+- **Plain**: links styled as text and made inert (`pointer-events: none`)
+- **Hide**: plain links, plus blocks tagged by `markLinkBlocks()` are hidden. A block (p, li, ul, div, aside, ...) is tagged when link text is >= 60% of its text; a short heading directly above a tagged block goes with it. A block holding more than half the article's text is never tagged
+- Hiding whole links inside sentences was rejected: it deletes words mid-sentence
+- CSS excludes `.listing-content` so TOC/listing mode (all links) is unaffected
+
+### Floating Button (v1.1.0, PR #1 by AwesomeLemon)
+
+Optional draggable "Ink" button that toggles the reader. On by default when the UA contains "Android" (Firefox Android hides the toolbar button in the menu), off elsewhere.
+- Lives in a `<inkpages-button>` custom element with its own closed shadow root, so page CSS can't restyle it
+- Tap is handled on `pointerup` (to tell taps from drags); keyboard activation comes through `click` with `detail === 0`
+- Position saved in `storage.local` (`floatingButtonPosition`); enabled/size are in `readerSettings` and synced to open tabs via `storage.onChanged`
+
+### Debug Options (removed in v1.1.0)
+
+The temporary pagination debug panel from v1.0.9 was removed after the pagination fix was confirmed. Its default code paths (floor viewport width, use `scrollWidth`) are what `setupPagination()` now always does.
 
 ### TOC Mode Layout Fixes for Narrow Screens (v1.0.5)
 The TOC/listing mode had issues on phone-sized e-reader screens (320-400px width):
@@ -400,17 +419,17 @@ The TOC/listing mode had issues on phone-sized e-reader screens (320-400px width
 **Note**: v1.0.5 fixes were insufficient because the root cause (CSS specificity) wasn't addressed until v1.0.6.
 
 **CSS locations** (`reader.css`):
-- `.listing-item` line ~988: `break-inside: avoid`
-- `.listing-main-link` line ~1000: word-break properties
-- `.listing-sub-links` line ~1018: reduced indentation
-- `.listing-sub-links a` line ~1032: word-break properties
+- `.listing-item` line ~1005: `break-inside: avoid`
+- `.listing-main-link` line ~1017: word-break properties
+- `.listing-sub-links` line ~1035: reduced indentation
+- `.listing-sub-links a` line ~1050: word-break properties
 
 ## Known Limitations
 
 1. JavaScript-rendered pages may not extract properly (Readability needs DOM content)
 2. Paywalled content cannot be extracted
 3. Complex layouts may have extraction artifacts
-4. Firefox Android: Works but UI accessed via menu, not toolbar
+4. Firefox Android: the toolbar button is in the menu; the floating "Ink" button (on by default on Android) gives one-tap access
 
 ## File Structure
 
@@ -430,15 +449,14 @@ InkPages/
 │   └── icon-128.png
 └── src/
     ├── background/
-    │   └── background.js   # Toolbar click handling, message passing
+    │   └── background.js   # Toolbar click handling
     ├── content/
     │   └── content.js      # Main logic: extraction, rendering, pagination
     ├── lib/
     │   └── Readability.js  # Mozilla Readability (Apache 2.0)
     └── reader/
         ├── reader.html     # Reader UI template
-        ├── reader.css      # Styles with theme support
-        └── reader.js       # Original reader (now mostly in content.js)
+        └── reader.css      # Styles with theme support
 ```
 
 ## Future Improvements
@@ -521,10 +539,15 @@ git push
 
 ## Important Code Locations
 
-- **Sanitization**: `content.js` line ~219 (`sanitizeHTML` function)
-- **Article Detection**: `content.js` line ~73 (`isArticlePage` function)
-- **Pagination Setup**: `content.js` line ~1037 (`setupPagination` function)
-- **Descender Buffer**: `content.js` line ~1070 (small buffer to prevent text touching progress bar)
-- **Header Recalc Fix**: `content.js` line ~1119 (recalculates pagination when header visibility changes)
-- **Cookie/Embed Filtering**: `content.js` line ~275 (`preprocessDOM` function)
-- **Image Scaling Fix**: `reader.css` line ~387 (`#article-content img`)
+- **Floating Button**: `content.js` line ~232 (`ensureFloatingButton` function)
+- **Article Detection**: `content.js` line ~397 (`isArticlePage` function; caches the parse in `detectedArticle`)
+- **Sanitization**: `content.js` line ~950 (`sanitizeHTML` function, URL scheme allowlist)
+- **Cookie/Embed Filtering**: `content.js` line ~1008 (`preprocessDOM` function)
+- **Repaginate keeping position**: `content.js` line ~1325 (`repaginate` function)
+- **Pagination Setup**: `content.js` line ~1420 (`setupPagination` function)
+- **Descender Buffer**: `content.js` line ~1456 (small buffer to prevent text touching progress bar)
+- **Header Minimize**: `content.js` line ~1505 (header hidden on pages 2+)
+- **Reading Position Restore**: `content.js` line ~1585 (`paginateNewContent` function)
+- **Link Block Detection**: `content.js` line ~2182 (`markLinkBlocks` function)
+- **Link Mode CSS**: `reader.css` line ~151
+- **Image Scaling Fix**: `reader.css` line ~451 (`#article-content img`)

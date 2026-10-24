@@ -18,6 +18,8 @@ InkPages transforms web content into a clean, paginated reading experience - lik
 - **Multiple themes** - Light, Dark, Sepia, and high-contrast E-ink
 - **Customizable typography** - font, size, line spacing, page width
 - **E-ink optimizations** - bold text, justify, grayscale, hide images
+- **Link controls** - show links normally, as plain text, or hide link-heavy blocks ("Read more", related-story promos)
+- **Floating button** - optional draggable "Ink" button to open the reader in one tap (on by default on Android)
 - **Site memory** - auto-activates on sites you've used it on
 - **Reading position memory** - resume where you left off
 
@@ -43,7 +45,7 @@ Note: Temporary add-ons are removed when Firefox closes.
 ## How to Use
 
 1. Navigate to any article or news homepage
-2. Click the InkPages icon
+2. Click the InkPages icon (or the floating "Ink" button, if enabled)
 3. Tap sides or swipe to turn pages
 4. Press 'S' for settings, 'Esc' to exit
 
@@ -68,6 +70,16 @@ Note: Temporary add-ons are removed when Firefox closes.
 | E-ink support | Basic | Optimized (no animations, grayscale mode) |
 
 ## Changelog
+
+### v1.1.0
+- Optional floating "Ink" button to open the reader, draggable and resizable (contributed by @AwesomeLemon, PR #1). On by default on Android, where the toolbar button is buried in the menu
+- New "Links" setting: Normal / Plain text / Hide link blocks (issue #2)
+- Fix reading position not being restored when reopening an article
+- Changing font size, width or other settings keeps your place instead of jumping to page 1
+- Stricter HTML sanitisation (all inline event handlers, URL scheme allowlist)
+- Faster activation: the article is parsed once instead of twice
+- Exported HTML keeps the article's language and text direction
+- Removed temporary pagination debug panel and unused legacy code
 
 ### v1.0.9
 - Fix sub-pixel pagination drift on narrow e-reader screens (always round viewport dimensions)
