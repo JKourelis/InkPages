@@ -5,7 +5,7 @@
 InkPages is a Firefox extension that provides Safari-like reader mode with paginated, book-style display optimized for e-ink devices (Kindle Scribe, Boox, reMarkable, etc.).
 
 **Repository**: https://github.com/JKourelis/InkPages
-**AMO Listing**: (pending approval, slug: `inkpages-reader` or similar)
+**AMO Listing**: https://addons.mozilla.org/firefox/addon/inkpages-reader/ (live; add-on ID `{77d4cdb4-ab52-4e89-ba4b-db8a517a085f}`)
 **License**: Apache 2.0
 
 ## Architecture Decisions
@@ -530,17 +530,26 @@ InkPages/
 
 ## Build/Release Process
 
+1. Bump `version` in `manifest.json`; add a README changelog entry
+2. Lint: `npx --yes web-ext@8 lint --source-dir . --ignore-files '*.zip'` (expect 0 errors; 5 innerHTML/Readability warnings are known). Delete the web-ext entry from `~/.npm/_npx` afterwards
+3. Build the versioned zip in the project folder (zips are gitignored) and copy it to OneDrive:
 ```bash
-# Create release zip
-cd /home/jkourelis/Bioinformatics/InkPages
-rm -f ../InkPages.zip
-zip -r ../InkPages.zip manifest.json README.md PRIVACY.md LICENSE icons/ src/background/ src/content/ src/lib/ src/reader/
-
-# Push to GitHub
-git add -A
-git commit -m "Description"
-git push
+cd /mnt/fastdata/Bioinformatics/InkPages
+zip -qr InkPages_vX.Y.Z.zip manifest.json README.md PRIVACY.md LICENSE icons/ src/background/ src/content/ src/lib/ src/reader/
+cp InkPages_vX.Y.Z.zip ~/OneDrive/
 ```
+4. Commit, and push only when the user says so. The user uploads the zip to AMO themselves
+   - AMO "Do you need to submit source code?": **No** (no build step; Readability.js is unminified)
+   - Release notes: 1-2 lines
+5. Open the project via `/mnt/fastdata/Bioinformatics/InkPages`, not the `~/Bioinformatics` symlink: VS Code's file watcher misses new files through the symlink
+
+### Testing
+- Headless Firefox via selenium: binary `/snap/firefox/current/usr/lib/firefox/firefox` (`/usr/bin/firefox` is a snap wrapper), geckodriver from the snap, `driver.install_addon(path, temporary=True)`, test pages from a local `python -m http.server`
+- Use a test copy with shadow roots `'open'` so WebDriver can see inside; WebDriver can't open `moz-extension://` pages
+- An Android UA (`general.useragent.override`) shows the floating button, the easiest way to toggle the reader
+- Test sites must include client-side (pushState) navigation, not just full page loads: v1.1.2-v1.1.3 passed full-load tests but sticky mode was still broken on volkskrant.nl
+- Don't visit real sites that need a consent click to be automated; ask the user to save the page instead
+- Clean up afterwards: kill http.server/geckodriver/firefox, delete scratch files, `/tmp/rust_mozprofile*` and `~/.cache/selenium`
 
 ## Important Code Locations
 
