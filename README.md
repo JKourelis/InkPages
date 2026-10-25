@@ -19,7 +19,7 @@ InkPages transforms web content into a clean, paginated reading experience - lik
 - **Customizable typography** - font, size, line spacing, page width
 - **E-ink optimizations** - bold text, justify, grayscale, hide images (captions stay as a short note, photo credits go)
 - **Text first** - images are kept to a third of the page by default (Small / Medium / Large), so a lead photo no longer pushes the text to page 2
-- **Export as HTML or EPUB** - EPUB includes the images, scaled down and in grayscale if you chose that; works with Send to Kindle, KOReader and other e-readers
+- **EPUB export (new, beta)** - save any article as an e-book for your e-reader, with images scaled down and in grayscale if you chose that ([details below](#send-articles-to-your-e-reader-epub-beta)). HTML export is still available
 - **Link controls** - show links normally, as plain text, or hide link-heavy blocks ("Read more", related-story promos)
 - **Floating button** - optional draggable "Ink" button to open the reader in one tap (on by default on Android)
 - **Site memory** - auto-activates on sites you've used it on (switch off per site in Settings)
@@ -51,6 +51,23 @@ Note: Temporary add-ons are removed when Firefox closes.
 3. Tap sides or swipe to turn pages
 4. Press 'S' for settings, 'Esc' to exit
 
+## Send Articles to Your E-reader (EPUB, beta)
+
+InkPages can save the article you are reading as an EPUB e-book, so you can read it on a Kindle, Kobo, Boox, reMarkable or in an e-reader app.
+
+1. Open the article in InkPages
+2. Settings → **Export Format** → **EPUB** (remembered from then on)
+3. Tap the export button (download icon) in the top bar. On mobile the share sheet opens; on desktop the file is downloaded
+4. Send the file to your device, e.g. with [Send to Kindle](https://www.amazon.com/sendtokindle) or by copying it over
+
+What goes into the e-book:
+- Title, author, source link and the full article text
+- Images, scaled down for e-ink and in grayscale when **Force grayscale** is on; the first image becomes the cover
+- With **Hide images** on: no images, captions kept as a short "Image:" note, photo credits left out
+- Images that can't be downloaded are left out, and InkPages tells you how many
+
+**Status:** the files pass [epubcheck](https://www.w3.org/publishing/epubcheck/), the official EPUB validator, with no errors or warnings. They have **not yet been tested on e-reader devices or with Send to Kindle**. If an export doesn't open or looks wrong on your device, please [open an issue](https://github.com/JKourelis/InkPages/issues) with the device or app and the article link.
+
 ## Keyboard Shortcuts
 
 | Key | Action |
@@ -70,6 +87,7 @@ Note: Temporary add-ons are removed when Firefox closes.
 | Site memory | None | Remembers sites, auto-activates |
 | Position memory | None | Saves reading position per article |
 | E-ink support | Basic | Optimized (no animations, grayscale mode) |
+| Export | None | HTML or EPUB e-book |
 
 ## Changelog
 
@@ -159,7 +177,7 @@ Note: Temporary add-ons are removed when Firefox closes.
 
 - **Chrome Extension** - Manifest V3 version for Chrome/Edge
 - **Customizable Shortcuts** - User-configurable keyboard shortcuts
-- **More Export Formats** - EPUB/PDF export (HTML export available now)
+- **More Export Formats** - PDF export (HTML and EPUB available now)
 - **Offline Reading** - Cache articles for offline access
 - **Annotations** - Highlight and note-taking support
 - **Reading Statistics** - Track reading time and articles read
