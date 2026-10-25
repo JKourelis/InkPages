@@ -69,6 +69,11 @@ content.style.columnGap = columnGap + 'px';
 - Why: short reviews (e.g. Volkskrant album reviews, ~180 words) fell through to TOC mode, so all article text "disappeared"
 - Known gap: undeclared section pages with many long teaser paragraphs can still be misread as articles (pre-existing)
 
+### Pre-extraction Cleanup (preprocessDOM)
+- Removes social embed placeholders, cookie/consent blocks, screen-reader-only text (`.sr-only`, `.visually-hidden`, `.visuallyhidden`, `.screen-reader-text`) and forms
+- Forms (v1.2.1): volkskrant.nl paywall pages carry a purchase form (plans, prices, conditions, ~5k chars) twice; Readability scored it above the article and the reader showed only the subscription offer. Forms holding less than half the page text are removed; a form wrapping most of the page (ASP.NET WebForms) is kept
+- On a paywalled Volkskrant page (not logged in) the intro paragraph exists only as a truncated teaser inside the paywall module, so the reader starts at the first body paragraph
+
 ### Settings Storage
 - `storage.sync`: User preferences (font, theme, etc.) - syncs across devices
 - `storage.local`: Enabled origins list, origins with auto-open switched off (`readerDisabledOrigins`), reading positions

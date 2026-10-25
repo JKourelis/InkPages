@@ -73,6 +73,10 @@ Note: Temporary add-ons are removed when Firefox closes.
 
 ## Changelog
 
+### v1.2.1
+- Fixed: on some paywalled sites (e.g. volkskrant.nl) the reader showed the subscription offer instead of the article. Forms (subscription, login, newsletter) are now removed before extraction
+- Screen-reader-only labels ("Label: Analyse", "Gepubliceerd op") no longer show up in the article
+
 ### v1.2.0
 - Export as EPUB: choose HTML or EPUB under Settings → Export Format; the export button uses that format. EPUB includes the images, scaled down (max 1600 px wide) and grayscale when "Force grayscale" is on
 - Exports follow "Hide images": no images, captions kept as an "Image:" note, photo credits dropped

@@ -1212,6 +1212,12 @@
       'iframe:not([src])',
       'iframe[src=""]',
       'iframe[src="about:blank"]',
+      // Screen-reader-only labels ("v-plus. Label: Analyse", "Gepubliceerd op"):
+      // invisible on the site, noise in the reader
+      '.sr-only',
+      '.visually-hidden',
+      '.visuallyhidden',
+      '.screen-reader-text',
     ];
 
     // Remove elements matching selectors
@@ -1221,6 +1227,14 @@
       } catch (e) {
         // Selector might not be supported, ignore
       }
+    });
+
+    // Remove forms (paywall purchase, login, newsletter): never article text, but a
+    // paywall form full of plans and conditions can outscore a short article
+    // (volkskrant.nl). A form wrapping most of the page (ASP.NET sites) is kept.
+    const pageTextLength = (doc.body && doc.body.textContent || '').length;
+    doc.querySelectorAll('form').forEach(form => {
+      if (form.textContent.length < pageTextLength * 0.5) form.remove();
     });
 
     // Remove elements containing cookie/consent text patterns (multi-language)
