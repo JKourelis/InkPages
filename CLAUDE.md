@@ -253,7 +253,7 @@ Safari on iOS/macOS supports the WebExtensions API (same standard as Firefox/Chr
   - Maximizes reading space on e-ink devices where screen real estate is precious
   - Compact title is shown in the top bar, so context is preserved
   - Full screen height is used on pages 2+ (no wasted space)
-- **Implementation**: `content.js` line ~1590 - header gets `.minimized` class (display: none)
+- **Implementation**: `content.js` line ~1618 - header gets `.minimized` class (display: none)
 - **DO NOT REMOVE THIS BEHAVIOR** - it was added intentionally in v1.0.3
 
 ### Solution: Absolute Header + Content Spacer (v1.0.4)
@@ -370,8 +370,28 @@ if (navigator.canShare && navigator.canShare({ files: [file] })) {
 - "Saved with InkPages" footer
 
 **Code locations**:
-- `content.js`: `exportArticle()`, `generateExportHTML()`
+- `content.js`: `exportArticle()`, `generateExportHTML()`, `prepareExportDocument()`
 - `reader.html`: Export button in header-right
+
+### EPUB Export (v1.2.0)
+
+Settings → Export Format (`settings.exportFormat`: `'html'` | `'epub'`, default html) picks what the export button produces; its title says which.
+- `src/content/epub.js` (content script loaded before content.js, global `InkPagesEpub.build()`): EPUB 3 with an EPUB 2 NCX, first image as cover. No library: a stored (uncompressed) zip writer with CRC32, ~70 lines; EPUB needs the mimetype entry stored anyway and JPEGs don't compress
+- Images are fetched by the content script (Firefox MV2 content scripts with `<all_urls>` fetch cross-origin without CORS), decoded with `createImageBitmap`, scaled to max 1600x2400, drawn on white (JPEG has no alpha), grayscale via `ctx.filter` when "Force grayscale" is on, re-encoded JPEG q0.82. Failed images are dropped and counted in a notice; images under 40px (icons, tracking pixels) are dropped silently. srcset: smallest candidate >= 1200w, else largest
+- `cleanForXhtml()` makes the article valid XHTML: element whitelist (unknown elements unwrapped, media/forms/svg dropped), attribute whitelist, phrasing elements holding blocks unwrapped, unique ids, `#fragment` links only to existing ids, relative links made absolute, comments and XML-invalid characters removed. Serialized with `XMLSerializer` inside one wrapper div
+- `crypto.randomUUID()` only exists on https pages, so the identifier comes from `getRandomValues`
+- Exports follow the image settings: `prepareExportDocument()` builds an inert copy of the article; with "Hide images" it drops images, credits and bare figures and prefixes captions with a real `<b>Image: </b>` (no CSS `::before` in exports). HTML export gets grayscale/max-height CSS; its images stay external URLs
+- Share sheet after a multi-second EPUB build may have lost user activation; the code falls back to a download. Object URLs are revoked after 10s (straight away could cancel a large download)
+- Verified with epubcheck 5.1.0 (0 errors/warnings) on mock articles (cross-origin images, srcset, webp, transparent PNG, 404, 1px, custom elements, control chars), Wikipedia and The Guardian. Not yet verified on real volkskrant.nl markup or on Send to Kindle / Boox / KOReader
+
+### Image Sizing and Captions (v1.2.0)
+
+- Text first: images are capped at a share of the page height: `--page-height` (set in `setupPagination()` from the viewport) x `--image-fraction` (Small 0.33 default, Medium 0.5, Large 0.7; `settings.imageSize`, host classes `.images-medium` / `.images-large`). Before, images could be 70vh and figures 80vh, so a lead photo didn't fit under the title and page 1 stayed empty
+- The figure `max-height: 80vh` was removed: with `overflow: visible` it only made the box shorter than its content
+- Images load eagerly (lazy images in later columns loaded only when reached and shifted the text while reading) and a debounced `repaginate()` runs after loads. With "Hide images" on they stay lazy (not fetched); `applySettings()` switches them to eager when shown again
+- `markCaptions()` tags `figcaption`/`.caption`: `.inkpages-caption` (informative; shown as an "Image:" note when images are hidden), `.inkpages-credit` (whole-caption credit, a trailing credit element, or trailing credit text split into a span), `.inkpages-bare-figure` (image figure without a real caption). Figures without images (tables, quotes) are left alone
+- Credit detection: a credit word (Foto, Beeld, Photo, Image, Credit, Illustratie, Bron, ...) followed by a name (capital/digit/©), ©, or an agency name alone (ANP, Reuters, Getty Images, "AFP via Getty Images"), max 60 chars. Trailing credits need a separator before them (full stop, | / – —, bracket). Requiring the capital keeps "Images of the protest" and "a photo of her mother" as captions
+- Bug fixed: `.link-btn` (and now the image size/export buttons) share the `.font-btn` style, and the font handler bound to every `.font-btn`, so tapping a Links button set `fontFamily` to undefined. `fontBtns` is now `.font-btn[data-font]`
 
 ### Reading Position Restore (v1.1.0)
 
@@ -456,6 +476,7 @@ InkPages/
     ├── background/
     │   └── background.js   # Toolbar click handling
     ├── content/
+    │   ├── epub.js         # EPUB export (zip writer, XHTML cleanup, image packing)
     │   └── content.js      # Main logic: extraction, rendering, pagination
     ├── lib/
     │   └── Readability.js  # Mozilla Readability (Apache 2.0)
@@ -558,11 +579,14 @@ cp InkPages_vX.Y.Z.zip ~/OneDrive/
 - **Article Detection**: `content.js` line ~511 (`isArticlePage` function; caches the parse in `detectedArticle`)
 - **Sanitization**: `content.js` line ~1130 (`sanitizeHTML` function, URL scheme allowlist)
 - **Cookie/Embed Filtering**: `content.js` line ~1188 (`preprocessDOM` function)
-- **Repaginate keeping position**: `content.js` line ~1513 (`repaginate` function)
-- **Pagination Setup**: `content.js` line ~1608 (`setupPagination` function)
-- **Descender Buffer**: `content.js` line ~1644 (small buffer to prevent text touching progress bar)
-- **Header Minimize**: `content.js` line ~1590 (header hidden on pages 2+)
-- **Reading Position Restore**: `content.js` line ~1764 (`paginateNewContent` function)
-- **Link Block Detection**: `content.js` line ~2389 (`markLinkBlocks` function)
-- **Link Mode CSS**: `reader.css` line ~151
-- **Image Scaling Fix**: `reader.css` line ~451 (`#article-content img`)
+- **Repaginate keeping position**: `content.js` line ~1527 (`repaginate` function)
+- **Pagination Setup**: `content.js` line ~1633 (`setupPagination` function; sets `--page-height` for image sizing)
+- **Descender Buffer**: `content.js` line ~1672 (small buffer to prevent text touching progress bar)
+- **Header Minimize**: `content.js` line ~1618 (header hidden on pages 2+)
+- **Reading Position Restore**: `content.js` line ~1792 (`paginateNewContent` function)
+- **Export (HTML/EPUB)**: `content.js` line ~2118 (`exportArticle`), ~2195 (`prepareExportDocument`); EPUB packaging in `epub.js`
+- **Link Block Detection**: `content.js` line ~2512 (`markLinkBlocks` function)
+- **Caption/Credit Tagging**: `content.js` line ~2571 (`markCaptions` function)
+- **Link Mode CSS**: `reader.css` line ~171
+- **Hide Images CSS**: `reader.css` line ~128
+- **Image Sizing**: `reader.css` line ~485 (`#article-content img`, `--image-fraction`)

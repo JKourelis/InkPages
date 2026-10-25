@@ -163,6 +163,13 @@
             <span class="toggle-text">Hide images</span>
           </label>
         </div>
+        <div class="setting-options image-size-options" style="margin-top:10px; align-items:center;">
+          <span class="toggle-text">Image size</span>
+          <button class="font-btn image-size-btn" data-image-size="small">Small</button>
+          <button class="font-btn image-size-btn" data-image-size="medium">Medium</button>
+          <button class="font-btn image-size-btn" data-image-size="large">Large</button>
+        </div>
+        <p class="setting-hint">Hidden images keep their caption as a note; photo credits are dropped</p>
       </div>
 
       <!-- Links -->
@@ -174,6 +181,16 @@
           <button class="font-btn link-btn" data-links="hide">Hide link blocks</button>
         </div>
         <p class="setting-hint">"Hide link blocks" removes paragraphs and lists that are mostly links, such as "Read more" and related-article promos</p>
+      </div>
+
+      <!-- Export -->
+      <div class="setting-group">
+        <label class="setting-label">Export Format</label>
+        <div class="setting-options export-options">
+          <button class="font-btn export-btn" data-export="html">HTML</button>
+          <button class="font-btn export-btn" data-export="epub">EPUB</button>
+        </div>
+        <p class="setting-hint">Format of the export button in the top bar. Exports follow "Force grayscale" and "Hide images"</p>
       </div>
 
       <!-- Behavior Options -->

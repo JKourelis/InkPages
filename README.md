@@ -17,7 +17,9 @@ InkPages transforms web content into a clean, paginated reading experience - lik
 - **Smart detection** - automatically chooses article or TOC mode
 - **Multiple themes** - Light, Dark, Sepia, and high-contrast E-ink
 - **Customizable typography** - font, size, line spacing, page width
-- **E-ink optimizations** - bold text, justify, grayscale, hide images
+- **E-ink optimizations** - bold text, justify, grayscale, hide images (captions stay as a short note, photo credits go)
+- **Text first** - images are kept to a third of the page by default (Small / Medium / Large), so a lead photo no longer pushes the text to page 2
+- **Export as HTML or EPUB** - EPUB includes the images, scaled down and in grayscale if you chose that; works with Send to Kindle, KOReader and other e-readers
 - **Link controls** - show links normally, as plain text, or hide link-heavy blocks ("Read more", related-story promos)
 - **Floating button** - optional draggable "Ink" button to open the reader in one tap (on by default on Android)
 - **Site memory** - auto-activates on sites you've used it on (switch off per site in Settings)
@@ -70,6 +72,14 @@ Note: Temporary add-ons are removed when Firefox closes.
 | E-ink support | Basic | Optimized (no animations, grayscale mode) |
 
 ## Changelog
+
+### v1.2.0
+- Export as EPUB: choose HTML or EPUB under Settings → Export Format; the export button uses that format. EPUB includes the images, scaled down (max 1600 px wide) and grayscale when "Force grayscale" is on
+- Exports follow "Hide images": no images, captions kept as an "Image:" note, photo credits dropped
+- Smaller images: by default at most a third of the page tall (Image size: Small / Medium / Large), so text comes first and a lead photo no longer leaves page 1 empty
+- "Hide images" keeps informative captions as a short note and drops photo credits ("Beeld ANP", "Foto: Reuters") and credit-only figures
+- Images load straight away and the pages are recounted when they arrive, so text no longer shifts while reading
+- Fixed: tapping a Links button reset the font choice
 
 ### v1.1.4
 - Auto-open now works on sites that switch articles without reloading the page (e.g. volkskrant.nl). Before, with the TOC off, every article opened from the site's own links needed a tap on the InkPages icon

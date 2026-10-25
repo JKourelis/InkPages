@@ -1402,7 +1402,8 @@
       settingsOverlay: shadowRoot.getElementById('settings-overlay'),
       btnCloseSettings: shadowRoot.getElementById('btn-close-settings'),
       btnCloseReader: shadowRoot.getElementById('btn-close-reader'),
-      fontBtns: shadowRoot.querySelectorAll('.font-btn'),
+      // Only buttons with data-font: the link/image size/export buttons share the .font-btn style
+      fontBtns: shadowRoot.querySelectorAll('.font-btn[data-font]'),
       fontSizeSlider: shadowRoot.getElementById('font-size-slider'),
       fontSizeValue: shadowRoot.getElementById('font-size-value'),
       lineHeightSlider: shadowRoot.getElementById('line-height-slider'),
@@ -1422,6 +1423,8 @@
       floatingButtonSizeValue: shadowRoot.getElementById('floating-button-size-value'),
       sizeBtns: shadowRoot.querySelectorAll('.size-btn'),
       linkBtns: shadowRoot.querySelectorAll('.link-btn'),
+      imageSizeBtns: shadowRoot.querySelectorAll('.image-size-btn'),
+      exportBtns: shadowRoot.querySelectorAll('.export-btn'),
       safeAreaSlider: shadowRoot.getElementById('safe-area-slider'),
       safeAreaValue: shadowRoot.getElementById('safe-area-value')
     };
@@ -1448,6 +1451,8 @@
       safeAreaManual: 0,
       listingModeEnabled: true,
       linkMode: 'normal',  // 'normal' | 'plain' | 'hide'
+      imageSize: 'small',  // 'small' | 'medium' | 'large' (share of the page height)
+      exportFormat: 'html',  // 'html' | 'epub'
       floatingButtonEnabled: isLikelyAndroid,
       floatingButtonSize: 50
     };
@@ -1501,6 +1506,15 @@
       root.classList.toggle('no-images', settings.noImages);
       root.classList.toggle('links-plain', settings.linkMode === 'plain');
       root.classList.toggle('links-hide', settings.linkMode === 'hide');
+      root.classList.toggle('images-medium', settings.imageSize === 'medium');
+      root.classList.toggle('images-large', settings.imageSize === 'large');
+
+      // Images not loaded while hidden (see renderArticle) are needed once they show again
+      if (!settings.noImages && elements.articleContent) {
+        elements.articleContent.querySelectorAll('img[loading="lazy"]').forEach(img => {
+          img.loading = 'eager';
+        });
+      }
 
       updateSettingsUI();
 
@@ -1529,6 +1543,17 @@
       elements.linkBtns.forEach(btn => {
         btn.classList.toggle('active', btn.dataset.links === settings.linkMode);
       });
+
+      elements.imageSizeBtns.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.imageSize === settings.imageSize);
+      });
+
+      elements.exportBtns.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.export === settings.exportFormat);
+      });
+      if (elements.btnExport) {
+        elements.btnExport.title = settings.exportFormat === 'epub' ? 'Export as EPUB' : 'Export as HTML';
+      }
 
       if (elements.fontSizeSlider) {
         elements.fontSizeSlider.value = settings.fontSize;
@@ -1617,6 +1642,9 @@
       const viewportWidth = Math.floor(viewportRect.width);
       const viewportHeight = Math.floor(viewportRect.height);
       const columnGap = 50;
+
+      // Images are sized as a share of the page height (reader.css)
+      content.style.setProperty('--page-height', viewportHeight + 'px');
 
       // Reset styles
       content.style.width = '';
@@ -1919,6 +1947,22 @@
         });
       });
 
+      elements.imageSizeBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          settings.imageSize = btn.dataset.imageSize;
+          applySettings();
+          saveSettings();
+        });
+      });
+
+      elements.exportBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          settings.exportFormat = btn.dataset.export;
+          updateSettingsUI();
+          saveSettings();
+        });
+      });
+
       // Toggles
       if (elements.toggleBold) {
         elements.toggleBold.addEventListener('change', (e) => {
@@ -2082,15 +2126,39 @@
         .replace(/[^a-zA-Z0-9\s-]/g, '')
         .replace(/\s+/g, '-')
         .substring(0, 50)
-        .toLowerCase();
-      const filename = `${cleanTitle}.html`;
+        .toLowerCase() || 'article';
 
-      // Build self-contained HTML
-      const html = generateExportHTML();
-
-      // Create file blob
-      const blob = new Blob([html], { type: 'text/html' });
-      const file = new File([blob], filename, { type: 'text/html' });
+      let blob;
+      let filename;
+      if (settings.exportFormat === 'epub') {
+        showNotification('Preparing EPUB…');
+        try {
+          const result = await InkPagesEpub.build({
+            title: articleData.title,
+            byline: articleData.byline,
+            siteName: articleData.siteName,
+            lang: articleData.lang,
+            dir: articleData.dir,
+            sourceUrl: articleData.sourceUrl,
+            contentRoot: prepareExportDocument().body,
+            grayscale: settings.grayscale
+          });
+          blob = result.blob;
+          if (result.skippedImages) {
+            const count = result.skippedImages;
+            showNotification(`${count} image${count === 1 ? '' : 's'} could not be included`);
+          }
+        } catch (error) {
+          console.error('InkPages: EPUB export failed', error);
+          showNotification('EPUB export failed');
+          return;
+        }
+        filename = `${cleanTitle}.epub`;
+      } else {
+        blob = new Blob([generateExportHTML()], { type: 'text/html' });
+        filename = `${cleanTitle}.html`;
+      }
+      const file = new File([blob], filename, { type: blob.type });
 
       // Try Web Share API first (mobile-friendly, opens share sheet)
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -2116,14 +2184,40 @@
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      // Revoking straight away can cancel a large download before it starts
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    }
+
+    /**
+     * The article as an inert document for export, following the image settings:
+     * with "Hide images" the images go, captions stay as an "Image:" note and credits go
+     */
+    function prepareExportDocument() {
+      // Inert document: nothing loads or runs
+      const doc = new DOMParser().parseFromString(articleData.content || '', 'text/html');
+      doc.body.querySelectorAll('img').forEach(img => {
+        if (img.dataset.src && !img.getAttribute('src')) img.setAttribute('src', img.dataset.src);
+        if (img.dataset.lazySrc && !img.getAttribute('src')) img.setAttribute('src', img.dataset.lazySrc);
+      });
+      markCaptions(doc.body);
+
+      if (settings.noImages) {
+        doc.body.querySelectorAll('img, picture, video, audio, iframe, svg, .inkpages-credit, .inkpages-bare-figure')
+          .forEach(el => el.remove());
+        doc.body.querySelectorAll('.inkpages-caption').forEach(caption => {
+          const label = doc.createElement('b');
+          label.textContent = 'Image: ';
+          caption.insertBefore(label, caption.firstChild);
+        });
+      }
+      return doc;
     }
 
     function generateExportHTML() {
       const title = articleData.title || 'Untitled';
       const byline = articleData.byline || '';
       const siteName = articleData.siteName || '';
-      const content = articleData.content || '';
+      const content = prepareExportDocument().body.innerHTML;
       const sourceUrl = articleData.sourceUrl || '';
 
       // Clean, readable styles for the exported HTML
@@ -2161,9 +2255,19 @@
         .source a { color: #0066cc; }
         img {
           max-width: 100%;
+          max-height: 50vh;
+          width: auto;
           height: auto;
           display: block;
-          margin: 1em 0;
+          margin: 1em auto;
+          ${settings.grayscale ? 'filter: grayscale(100%);' : ''}
+        }
+        figure { margin: 1em 0; }
+        figure img { margin: 0 auto; }
+        figcaption, .inkpages-caption {
+          font-size: 0.875em;
+          font-style: italic;
+          color: #555;
         }
         a { color: #0066cc; }
         blockquote {
@@ -2225,7 +2329,8 @@
       setupPagination,
       updateHeaderSpacer,
       applySettings,
-      paginateNewContent
+      paginateNewContent,
+      repaginate
     };
   }
 
@@ -2266,14 +2371,32 @@
       if (readerIds.has(el.id)) el.removeAttribute('id');
     });
 
-    // Process images
+    // Process images. Load them straight away (unless hidden): lazy images in later columns
+    // would only load when reached and shift the text while reading. Each load changes the
+    // layout, so repaginate (keeping the position) once they settle.
+    const imagesHidden = shadowRoot.host.classList.contains('no-images');
+    let imageRepaginateTimer = null;
+    const repaginateAfterImageLoad = () => {
+      clearTimeout(imageRepaginateTimer);
+      imageRepaginateTimer = setTimeout(() => {
+        const funcs = window.__einkReaderFunctions;
+        if (funcs && isReaderActive) funcs.repaginate();
+      }, 150);
+    };
     const images = elements.articleContent.querySelectorAll('img');
     images.forEach(img => {
       if (img.dataset.src && !img.src) img.src = img.dataset.src;
       if (img.dataset.lazySrc && !img.src) img.src = img.dataset.lazySrc;
-      img.loading = 'lazy';
+      img.loading = imagesHidden ? 'lazy' : 'eager';
       img.style.breakInside = 'avoid';
+      if (!img.complete) {
+        img.addEventListener('load', repaginateAfterImageLoad, { once: true });
+        img.addEventListener('error', repaginateAfterImageLoad, { once: true });
+      }
     });
+
+    // Tag captions and photo credits for the "Hide images" setting
+    markCaptions(elements.articleContent);
 
     // Tag link-dominated blocks so the "Hide link blocks" setting can hide them
     markLinkBlocks(elements.articleContent);
@@ -2421,6 +2544,74 @@
 
   function normalizedTextLength(el) {
     return el.textContent.replace(/\s+/g, ' ').trim().length;
+  }
+
+  // Photo credits: "Foto ANP", "Beeld Getty Images", "Photo: Jane Doe/Reuters", "© AFP".
+  // The credit word must be followed by a name (capital, digit or ©), so a caption such as
+  // "Images of the protest" is not mistaken for one.
+  const CREDIT_WORD = "(?:[Ff]oto'?s?|FOTO|[Pp]hotos?|PHOTO|[Bb]eeld|BEELD|[Ii]mages?|[Cc]redits?|" +
+    '[Cc]opyright|[Ii]llustrati(?:e|on)|[Bb]ron|[Ss]ource)';
+  const CREDIT_START = new RegExp(`^(?:©|\\(c\\)|${CREDIT_WORD}\\s*:?\\s+[A-Z0-9©])`);
+  const CREDIT_AGENCY = /^(getty images|anp|reuters|ap|afp|epa|dpa|shutterstock|istock|alamy|hollandse hoogte|unsplash)((\s*[/|,]|\s+via|\s+-)\s*[^.!?]{1,50})?$/i;
+  // A credit after the caption text: after a full stop, a separator (| / – —), in brackets, or ©
+  const TRAILING_CREDIT = new RegExp(
+    `(?:(?<=[.!?])\\s*|\\s+[|/–—-]\\s*|\\s*\\(|\\s+(?=©))(?:${CREDIT_WORD}\\s*:?\\s+(?=[A-Z0-9©])|©)[^.!?]{1,60}$`);
+
+  function isCreditText(text) {
+    return text.length <= 60 && (CREDIT_START.test(text) || CREDIT_AGENCY.test(text));
+  }
+
+  /**
+   * Tag captions for the "Hide images" setting and exports without images:
+   * - .inkpages-caption: a caption that says something; shown as an "Image:" note
+   * - .inkpages-credit: a photo credit (a whole caption, or its trailing part); dropped
+   * - .inkpages-bare-figure: an image figure with no caption, or only a credit; dropped
+   * Figures without images (tables, quotes, code) are left alone.
+   */
+  function markCaptions(container) {
+    const clean = text => text.replace(/\s+/g, ' ').trim();
+
+    container.querySelectorAll('figcaption, .caption').forEach(caption => {
+      if (caption.parentElement && caption.parentElement.closest('figcaption, .caption')) return;
+      const text = clean(caption.textContent);
+      if (!text) return;
+      if (isCreditText(text)) {
+        caption.classList.add('inkpages-credit');
+        return;
+      }
+      caption.classList.add('inkpages-caption');
+
+      // A trailing credit is often its own element...
+      const last = caption.lastElementChild;
+      if (last && isCreditText(clean(last.textContent))) {
+        last.classList.add('inkpages-credit');
+        return;
+      }
+      // ...or plain text after the caption ("Protesters in The Hague. Beeld ANP")
+      const lastNode = caption.lastChild;
+      if (lastNode && lastNode.nodeType === Node.TEXT_NODE) {
+        const match = lastNode.data.match(TRAILING_CREDIT);
+        const captionText = caption.textContent;
+        const before = match && captionText.slice(0, captionText.length - lastNode.data.length + match.index);
+        if (match && clean(before)) {
+          const credit = lastNode.splitText(match.index);
+          const span = container.ownerDocument.createElement('span');
+          span.className = 'inkpages-credit';
+          credit.replaceWith(span);
+          span.appendChild(credit);
+        }
+      }
+    });
+
+    container.querySelectorAll('figure').forEach(figure => {
+      if (!figure.querySelector('img, picture, video, iframe, svg')) return;
+      if (figure.querySelector('.inkpages-caption')) return;
+      // Caption text in a plain element rather than a <figcaption>
+      const copy = figure.cloneNode(true);
+      copy.querySelectorAll('.inkpages-credit').forEach(credit => credit.remove());
+      const text = clean(copy.textContent);
+      figure.classList.add(text && !isCreditText(text) ? 'inkpages-caption' : 'inkpages-bare-figure');
+    });
   }
 
   /**

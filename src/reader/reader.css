@@ -125,18 +125,38 @@ body.bold-text h3,
   font-weight: 700;
 }
 
-/* Hide images mode */
+/* Hide images mode. Captions stay as a marked note; photo credits and figures without
+   a real caption go (tagged by markCaptions() in content.js) */
 body.no-images img,
 body.no-images figure,
 body.no-images picture,
 body.no-images video,
 body.no-images iframe,
 :host(.no-images) img,
-:host(.no-images) figure,
 :host(.no-images) picture,
 :host(.no-images) video,
-:host(.no-images) iframe {
+:host(.no-images) iframe,
+:host(.no-images) #article-content .inkpages-credit,
+:host(.no-images) #article-content .inkpages-bare-figure {
   display: none !important;
+}
+
+:host(.no-images) #article-content figure {
+  margin: 0.75em 0;
+}
+
+:host(.no-images) #article-content .inkpages-caption {
+  font-size: 0.875em;
+  font-style: italic;
+  color: var(--text-secondary);
+  text-align: left;
+  margin: 0.75em 0;
+}
+
+:host(.no-images) #article-content .inkpages-caption::before {
+  content: 'Image: ';
+  font-style: normal;
+  font-weight: 600;
 }
 
 /* Justify text mode */
@@ -448,9 +468,23 @@ body.justify-text #article-content,
   padding: 0;
 }
 
+/* Images are capped at a share of the page height (--page-height is set by setupPagination)
+   so text comes first: a lead photo fits under the title instead of pushing it to page 2 */
+#article-content {
+  --image-fraction: 0.33;
+}
+
+:host(.images-medium) #article-content {
+  --image-fraction: 0.5;
+}
+
+:host(.images-large) #article-content {
+  --image-fraction: 0.7;
+}
+
 #article-content img {
   max-width: 100%;
-  max-height: 70vh;
+  max-height: calc(var(--page-height, 100vh) * var(--image-fraction));
   width: auto;
   height: auto;
   object-fit: contain;
@@ -463,15 +497,17 @@ body.justify-text #article-content,
 #article-content figure {
   margin: 1.5em 0;
   break-inside: avoid;
-  max-height: 80vh;
-  overflow: visible;
+}
+
+#article-content figure img {
+  margin: 0 auto;
 }
 
 #article-content figcaption {
   font-size: 0.875em;
   color: var(--text-secondary);
   text-align: center;
-  margin-top: 0.5em;
+  margin-top: 0.4em;
 }
 
 #article-content table {
