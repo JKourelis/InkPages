@@ -71,6 +71,11 @@ Note: Temporary add-ons are removed when Firefox closes.
 
 ## Changelog
 
+### v1.1.4
+- Auto-open now works on sites that switch articles without reloading the page (e.g. volkskrant.nl). Before, with the TOC off, every article opened from the site's own links needed a tap on the InkPages icon
+- Going back after such a switch closes the previous article's reader instead of leaving it on top
+- Turning "Auto-open on this site" off now sticks; opening the reader by hand no longer switches it back on
+
 ### v1.1.3
 - Closing the reader no longer turns off auto-open for the site. Use the new "Auto-open on this site" switch in Settings instead
 - Articles whose text loads late (paywall checks, JavaScript-built pages) are retried before giving up on auto-open

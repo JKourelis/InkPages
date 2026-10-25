@@ -25,7 +25,9 @@
   let isListingMode = false;
   let readerOverlay = null;
   let shadowRoot = null;
+  // Page title to restore when the reader closes, and the title the reader set
   let originalTitle = document.title;
+  let readerTitle = null;
   let articleData = null;
   let listingData = null;
   // Article parsed by isArticlePage(), reused on activation so Readability only runs once
@@ -357,7 +359,15 @@
   // Activates if this origin has reader mode enabled:
   // - Article pages: show reader mode
   // - Non-article pages: show listing/TOC mode (if enabled in settings)
-  async function checkAutoActivation() {
+  //
+  // After client-side navigation (previousFingerprint given) it first waits for the site
+  // to swap in the new page, so the previous article isn't detected again.
+  async function checkAutoActivation({ previousFingerprint, historyNavigation = false } = {}) {
+    const run = ++autoActivationRun;
+    // A newer navigation started its own check; this one is for a page that's gone
+    const superseded = () => run !== autoActivationRun;
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
     try {
       const origin = window.location.origin;
 
@@ -376,30 +386,122 @@
       const listingModeEnabled = savedSettings.listingModeEnabled !== false; // Default true
 
       // Small delay to let page fully load before checking content
-      setTimeout(async () => {
-        // Check if this page is actually an article. Pages that declare themselves an article
-        // but render their text late (hydration, paywall checks) get a few more tries.
-        let isArticle = await isArticlePage();
-        const retryDelays = isDeclaredArticle() ? [1000, 2000] : [];
-        for (const delay of retryDelays) {
-          if (isArticle || isReaderActive) break;
-          await new Promise(resolve => setTimeout(resolve, delay));
-          isArticle = await isArticlePage();
-        }
+      await wait(500);
 
-        // The user may have opened the reader themselves while we were waiting
-        if (isReaderActive) return;
+      if (previousFingerprint !== undefined) {
+        const changed = await waitForNewPage(previousFingerprint, superseded);
+        if (superseded()) return;
+        // The site only rewrote the URL of the page it's showing (e.g. added a parameter).
+        // Not a new page, and the user may have closed the reader here on purpose.
+        if (!changed && !historyNavigation) return;
+        lastPageFingerprint = pageFingerprint();
+      }
 
-        if (isArticle) {
-          activateReaderMode();
-        } else if (listingModeEnabled) {
-          // Not an article - show listing/TOC mode (if enabled)
-          activateListingMode();
-        }
-      }, 500);
+      // Check if this page is actually an article. Pages that declare themselves an article
+      // but render their text late (hydration, paywall checks) get a few more tries.
+      if (superseded()) return;
+      let isArticle = await isArticlePage();
+      const retryDelays = isDeclaredArticle() ? [1000, 2000] : [];
+      for (const delay of retryDelays) {
+        if (isArticle || isReaderActive || superseded()) break;
+        await wait(delay);
+        if (superseded()) return;
+        isArticle = await isArticlePage();
+      }
+
+      // The user may have opened the reader themselves while we were waiting
+      if (isReaderActive || superseded()) return;
+
+      if (isArticle) {
+        activateReaderMode();
+      } else if (listingModeEnabled) {
+        // Not an article - show listing/TOC mode (if enabled)
+        activateListingMode();
+      }
     } catch (e) {
       console.warn('Failed to check auto-activation:', e);
     }
+  }
+
+  // Client-side navigation (history.pushState on single-page sites, e.g. volkskrant.nl)
+  // changes the URL without reloading the page, so the content script doesn't run again.
+  // Watch the URL and re-run auto-activation for each new page.
+  let autoActivationRun = 0;
+  let lastHref = window.location.href;
+  let lastPageUrl = pageUrlKey(lastHref);
+  let lastPageFingerprint = '';
+
+  // URL without the #fragment and utm_* tracking parameters
+  function pageUrlKey(href) {
+    try {
+      const url = new URL(href);
+      url.hash = '';
+      for (const param of Array.from(url.searchParams.keys())) {
+        if (param.startsWith('utm_')) url.searchParams.delete(param);
+      }
+      return url.href;
+    } catch {
+      return href;
+    }
+  }
+
+  // Cheap marker of which page the site is showing (the title is unusable: the reader sets it).
+  // Recorded when the reader opens and when a navigation check settles, in lastPageFingerprint.
+  function pageFingerprint() {
+    const h1 = document.querySelector('article h1, main h1, [role="main"] h1') ||
+      document.querySelector('h1');
+    const canonical = document.querySelector('link[rel="canonical"]');
+    const ogUrl = document.querySelector('meta[property="og:url"]');
+    // Some sites have only a logo h1 and no canonical link; the text itself still differs
+    const isLong = p => p.textContent.length > 100;
+    const paragraph = Array.from(document.querySelectorAll('article p, main p')).find(isLong) ||
+      Array.from(document.querySelectorAll('p')).find(isLong);
+    return [
+      h1 ? h1.textContent.trim().slice(0, 200) : '',
+      canonical ? canonical.getAttribute('href') : '',
+      ogUrl ? ogUrl.getAttribute('content') : '',
+      paragraph ? paragraph.textContent.trim().slice(0, 200) : ''
+    ].join('\n');
+  }
+
+  // Wait (up to ~4.5s) until the page differs from the previous one and has stopped
+  // changing for one sample, so a page the site shows only briefly isn't picked up
+  async function waitForNewPage(previousFingerprint, superseded) {
+    let sample = null;
+    for (let elapsed = 0; elapsed <= 4500; elapsed += 250) {
+      if (superseded()) return false;
+      const fingerprint = pageFingerprint();
+      if (fingerprint !== previousFingerprint && fingerprint === sample) return true;
+      sample = fingerprint;
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    return false;
+  }
+
+  function onPossibleNavigation(event) {
+    if (window.location.href === lastHref) return;
+    lastHref = window.location.href;
+
+    const url = pageUrlKey(lastHref);
+    if (url === lastPageUrl) return; // Only the #fragment or tracking parameters changed
+    lastPageUrl = url;
+
+    const previousFingerprint = lastPageFingerprint;
+    const historyNavigation = Boolean(event && event.type === 'popstate');
+    if (isReaderActive) {
+      // Back/forward always leaves the page the reader shows. Other URL changes while the
+      // reader covers the page come from the site's own scripts (e.g. adding a parameter)
+      // and only count when the page content changed as well.
+      if (!historyNavigation && pageFingerprint() === previousFingerprint) return;
+      deactivateReaderMode();
+    }
+    checkAutoActivation({ previousFingerprint, historyNavigation });
+  }
+
+  function watchForNavigation() {
+    lastPageFingerprint = pageFingerprint();
+    window.addEventListener('popstate', onPossibleNavigation);
+    setInterval(onPossibleNavigation, 500);
   }
 
   /**
@@ -504,13 +606,22 @@
   }
 
   /**
-   * Remember this origin as having reader mode enabled
+   * Remember this origin as having reader mode enabled.
+   * Opening the reader remembers the site, unless auto-open was switched off for it in
+   * Settings (readerDisabledOrigins); only that switch (explicit) turns it back on.
    */
-  async function enableReaderForOrigin() {
+  async function enableReaderForOrigin({ explicit = false } = {}) {
     try {
       const origin = window.location.origin;
-      const result = await browserAPI.storage.local.get('readerEnabledOrigins');
+      const result = await browserAPI.storage.local.get(['readerEnabledOrigins', 'readerDisabledOrigins']);
       const enabledOrigins = result.readerEnabledOrigins || [];
+      const disabledOrigins = result.readerDisabledOrigins || [];
+
+      if (disabledOrigins.includes(origin)) {
+        if (!explicit) return;
+        disabledOrigins.splice(disabledOrigins.indexOf(origin), 1);
+        await browserAPI.storage.local.set({ readerDisabledOrigins: disabledOrigins });
+      }
 
       if (!enabledOrigins.includes(origin)) {
         enabledOrigins.push(origin);
@@ -575,6 +686,7 @@
       await createReaderOverlay();
       isReaderActive = true;
       updateFloatingButtonVisibility();
+      lastPageFingerprint = pageFingerprint();
 
       // Remember this origin as having reader mode enabled
       await enableReaderForOrigin();
@@ -607,6 +719,7 @@
       await createReaderOverlay();
       isReaderActive = true;
       updateFloatingButtonVisibility();
+      lastPageFingerprint = pageFingerprint();
 
       // Remember this origin as having reader mode enabled
       await enableReaderForOrigin();
@@ -626,7 +739,9 @@
       readerOverlay.style.display = 'none';
     }
 
-    document.title = originalTitle;
+    // Leave the title alone if the site changed it meanwhile (client-side navigation)
+    if (document.title === readerTitle) document.title = originalTitle;
+    readerTitle = null;
     document.body.style.overflow = '';
     isReaderActive = false;
     isListingMode = false;
@@ -650,13 +765,20 @@
   }
 
   /**
-   * Remove this origin from the enabled origins list
+   * Remove this origin from the enabled origins list (the Settings switch), and keep it off
+   * when the reader is opened by hand later
    */
   async function disableReaderForOrigin() {
     try {
       const origin = window.location.origin;
-      const result = await browserAPI.storage.local.get('readerEnabledOrigins');
+      const result = await browserAPI.storage.local.get(['readerEnabledOrigins', 'readerDisabledOrigins']);
       const enabledOrigins = result.readerEnabledOrigins || [];
+      const disabledOrigins = result.readerDisabledOrigins || [];
+
+      if (!disabledOrigins.includes(origin)) {
+        disabledOrigins.push(origin);
+        await browserAPI.storage.local.set({ readerDisabledOrigins: disabledOrigins });
+      }
 
       const index = enabledOrigins.indexOf(origin);
       if (index !== -1) {
@@ -1237,12 +1359,18 @@
 
     // Render content based on mode
     if (isListingMode && listingData) {
-      document.title = listingData.pageTitle + ' - InkPages';
+      setReaderTitle(listingData.pageTitle);
       renderListing();
     } else if (articleData) {
-      document.title = articleData.title + ' - InkPages';
+      setReaderTitle(articleData.title);
       renderArticle();
     }
+  }
+
+  function setReaderTitle(title) {
+    if (document.title !== readerTitle) originalTitle = document.title;
+    readerTitle = title + ' - InkPages';
+    document.title = readerTitle;
   }
 
   /**
@@ -1594,16 +1722,7 @@
 
     // Key on the URL without the #fragment and utm_* tracking parameters
     function readingPositionKey() {
-      try {
-        const url = new URL(articleData.sourceUrl);
-        url.hash = '';
-        for (const param of Array.from(url.searchParams.keys())) {
-          if (param.startsWith('utm_')) url.searchParams.delete(param);
-        }
-        return 'pos_' + url.href;
-      } catch {
-        return 'pos_' + articleData.sourceUrl;
-      }
+      return 'pos_' + pageUrlKey(articleData.sourceUrl);
     }
 
     async function saveReadingPosition() {
@@ -1844,7 +1963,7 @@
       if (elements.toggleSiteAuto) {
         elements.toggleSiteAuto.addEventListener('change', (e) => {
           if (e.target.checked) {
-            enableReaderForOrigin();
+            enableReaderForOrigin({ explicit: true });
           } else {
             disableReaderForOrigin();
           }
@@ -2383,5 +2502,6 @@
 
   // Initialize floating button and check auto-activation for sticky mode
   initializeFloatingButton();
+  watchForNavigation();
   checkAutoActivation();
 })();

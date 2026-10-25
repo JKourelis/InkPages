@@ -38,14 +38,16 @@ InkPages is a Firefox extension that provides Safari-like reader mode with pagin
 
 1. **True Pagination**: CSS multi-column layout with `translateX` navigation (no scrolling)
 2. **Article Detection**: Heuristics to detect articles vs homepages/listing pages
-3. **Site Memory**: Remembers which origins have reader mode enabled. Since v1.1.3 closing the reader never forgets the origin (it only hides the reader for that page); the "Auto-open on this site" toggle in Settings adds/removes the origin. Before, closing an article removed it, so with TOC mode off every close turned sticky mode off and each page needed a click
+3. **Site Memory**: Remembers which origins have reader mode enabled. Since v1.1.3 closing the reader never forgets the origin (it only hides the reader for that page); the "Auto-open on this site" toggle in Settings adds/removes the origin. Switching it off also adds the origin to `readerDisabledOrigins` (v1.1.4), so opening the reader by hand no longer re-enables the site; only the switch does. Before, closing an article removed it, so with TOC mode off every close turned sticky mode off and each page needed a click
 4. **Auto-Activation**: On remembered sites, auto-activates only on detected article pages. Declared articles that fail detection at 500ms are re-checked after +1s and +2s (late-rendered text), before falling back to TOC/nothing (v1.1.3)
-5. **Reading Position Memory**: Saves position per URL (last 50 articles)
-6. **Link Handling**: Same-origin links navigate normally, external links open in new tab
-7. **HTML Sanitization**: Strips event handlers, javascript: URLs, scripts, forms, iframes
-8. **Cookie/Embed Filtering**: Removes social media embed placeholders and cookie consent blocks
-9. **Link Modes**: Links shown normally, as plain text, or link-heavy blocks hidden
-10. **Floating Button**: Optional draggable button to open the reader (default on Android)
+5. **Client-Side Navigation (v1.1.4)**: Single-page sites (volkskrant.nl is Next.js) change the URL with `history.pushState`, so the content script never re-runs. `watchForNavigation()` checks `location.href` every 500ms and on `popstate`, and re-runs `checkAutoActivation({previousFingerprint})`. `waitForNewPage()` first waits (up to ~4.5s) until the page fingerprint (`h1` in article/main, canonical href, og:url, first paragraph over 100 chars; not the title, which some routers change before the content) differs from the previous page and is stable for one 250ms sample, so neither the previous article nor a page shown only briefly is detected. The fingerprint is recorded at load, when the reader opens and when a check settles (not every tick: a tick between a content swap and the URL change would record the new page). If the fingerprint never changes: back/forward still proceeds, other URL changes are the site rewriting its own URL and are ignored (otherwise a reader the user closed reopens). An open reader closes on back/forward. A run counter cancels checks for pages already left. Known gap: a router that briefly renders a superseded page for longer than one sample (~250ms) at the new URL can get that page detected; Next.js-style routers cancel superseded navigations, so this was only seen with a synthetic router
+   - Why: with TOC on, users navigated via TOC links, which sit in the reader's shadow DOM and cause full loads, and failed detections still showed the TOC. With TOC off they tap the site's own links, so auto-open silently never ran. Tests with only full-load pages missed this (v1.1.2/v1.1.3 fixed real but different bugs)
+6. **Reading Position Memory**: Saves position per URL (last 50 articles)
+7. **Link Handling**: Same-origin links navigate normally, external links open in new tab
+8. **HTML Sanitization**: Strips event handlers, javascript: URLs, scripts, forms, iframes
+9. **Cookie/Embed Filtering**: Removes social media embed placeholders and cookie consent blocks
+10. **Link Modes**: Links shown normally, as plain text, or link-heavy blocks hidden
+11. **Floating Button**: Optional draggable button to open the reader (default on Android)
 
 ## Technical Details
 
@@ -69,7 +71,7 @@ content.style.columnGap = columnGap + 'px';
 
 ### Settings Storage
 - `storage.sync`: User preferences (font, theme, etc.) - syncs across devices
-- `storage.local`: Enabled origins list, reading positions
+- `storage.local`: Enabled origins list, origins with auto-open switched off (`readerDisabledOrigins`), reading positions
 
 ## AMO Submission Notes
 
@@ -91,7 +93,7 @@ content.style.columnGap = columnGap + 'px';
 
 ### innerHTML Warnings (Expected)
 AMO shows warnings for innerHTML usage. These are acceptable because:
-- Our code has `sanitizeHTML()` (content.js ~line 219) that strips dangerous content
+- Our code has `sanitizeHTML()` (content.js ~line 1130) that strips dangerous content
 - Readability.js warnings are from Mozilla's own library
 
 ### Reviewer Notes
@@ -251,7 +253,7 @@ Safari on iOS/macOS supports the WebExtensions API (same standard as Firefox/Chr
   - Maximizes reading space on e-ink devices where screen real estate is precious
   - Compact title is shown in the top bar, so context is preserved
   - Full screen height is used on pages 2+ (no wasted space)
-- **Implementation**: `content.js` line ~1505 - header gets `.minimized` class (display: none)
+- **Implementation**: `content.js` line ~1590 - header gets `.minimized` class (display: none)
 - **DO NOT REMOVE THIS BEHAVIOR** - it was added intentionally in v1.0.3
 
 ### Solution: Absolute Header + Content Spacer (v1.0.4)
@@ -542,15 +544,16 @@ git push
 
 ## Important Code Locations
 
-- **Floating Button**: `content.js` line ~232 (`ensureFloatingButton` function)
-- **Article Detection**: `content.js` line ~397 (`isArticlePage` function; caches the parse in `detectedArticle`)
-- **Sanitization**: `content.js` line ~950 (`sanitizeHTML` function, URL scheme allowlist)
-- **Cookie/Embed Filtering**: `content.js` line ~1008 (`preprocessDOM` function)
-- **Repaginate keeping position**: `content.js` line ~1325 (`repaginate` function)
-- **Pagination Setup**: `content.js` line ~1420 (`setupPagination` function)
-- **Descender Buffer**: `content.js` line ~1456 (small buffer to prevent text touching progress bar)
-- **Header Minimize**: `content.js` line ~1505 (header hidden on pages 2+)
-- **Reading Position Restore**: `content.js` line ~1585 (`paginateNewContent` function)
-- **Link Block Detection**: `content.js` line ~2182 (`markLinkBlocks` function)
+- **Floating Button**: `content.js` line ~234 (`ensureFloatingButton` function)
+- **Auto-Activation / SPA navigation watcher**: `content.js` line ~365 (`checkAutoActivation`), ~501 (`watchForNavigation`)
+- **Article Detection**: `content.js` line ~511 (`isArticlePage` function; caches the parse in `detectedArticle`)
+- **Sanitization**: `content.js` line ~1130 (`sanitizeHTML` function, URL scheme allowlist)
+- **Cookie/Embed Filtering**: `content.js` line ~1188 (`preprocessDOM` function)
+- **Repaginate keeping position**: `content.js` line ~1513 (`repaginate` function)
+- **Pagination Setup**: `content.js` line ~1608 (`setupPagination` function)
+- **Descender Buffer**: `content.js` line ~1644 (small buffer to prevent text touching progress bar)
+- **Header Minimize**: `content.js` line ~1590 (header hidden on pages 2+)
+- **Reading Position Restore**: `content.js` line ~1764 (`paginateNewContent` function)
+- **Link Block Detection**: `content.js` line ~2389 (`markLinkBlocks` function)
 - **Link Mode CSS**: `reader.css` line ~151
 - **Image Scaling Fix**: `reader.css` line ~451 (`#article-content img`)
