@@ -1237,6 +1237,8 @@
       if (form.textContent.length < pageTextLength * 0.5) form.remove();
     });
 
+    removeSignInGates(doc);
+
     // Remove elements containing cookie/consent text patterns (multi-language)
     const consentPatterns = [
       /cookie[s]?.*(?:accepte|toestemming|consent|akzeptieren|accetta)/i,
@@ -1264,6 +1266,44 @@
     });
 
     return doc;
+  }
+
+  // Sign-in / subscribe gates placed between article paragraphs (the Guardian's
+  // "This is not a paywall" box): a link to a sign-in, register or subscribe page
+  // whose own text is a call to action.
+  const GATE_HREF = /sign-?in|log-?in|register|registr|sign-?up|subscri|abonne|account|profile|inloggen|anmeld|connexion/i;
+  const GATE_LINK_TEXT = /\b(sign(ed)? ?in|log ?in|create (an|a free|your) account|register|subscribe|sign ?up|inloggen|registreer|abonneer|word abonnee|account aanmaken|anmelden|registrieren|abonnieren|se connecter|s'abonner|abonnez|créer un compte|s'inscrire)\b/i;
+
+  /**
+   * Remove the outermost small box around each gate link that sits among the
+   * article's paragraphs (its parent has 2+ other paragraphs of 100+ chars).
+   * Links inside a paragraph never qualify: the climb stops at the article body,
+   * which is over 1500 chars or has no paragraph siblings.
+   */
+  function removeSignInGates(doc) {
+    const hasProseSiblings = (el) => {
+      const parent = el.parentElement;
+      if (!parent) return false;
+      let prose = 0;
+      for (const child of parent.children) {
+        if (child !== el && child.tagName === 'P' && child.textContent.trim().length >= 100) prose++;
+      }
+      return prose >= 2;
+    };
+    // A gate is a box (heading, button or several links), not a sentence with a link
+    const looksLikeBox = (el) =>
+      el.querySelector('h2, h3, h4, h5, h6, button') !== null || el.querySelectorAll('a[href]').length >= 2;
+
+    doc.querySelectorAll('a[href]').forEach(link => {
+      if (!link.isConnected) return;
+      if (!GATE_HREF.test(link.getAttribute('href')) || !GATE_LINK_TEXT.test(link.textContent)) return;
+      let gate = null;
+      for (let el = link.parentElement; el && el !== doc.body; el = el.parentElement) {
+        if (el.textContent.length > 1500) break;
+        if (/^(DIV|ASIDE|SECTION)$/.test(el.tagName) && looksLikeBox(el) && hasProseSiblings(el)) gate = el;
+      }
+      if (gate) gate.remove();
+    });
   }
 
   /**

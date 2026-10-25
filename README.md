@@ -73,6 +73,9 @@ Note: Temporary add-ons are removed when Firefox closes.
 
 ## Changelog
 
+### v1.2.2
+- Sign-in and newsletter boxes placed between paragraphs (e.g. the Guardian's "This is not a paywall" box) are no longer shown as part of the article
+
 ### v1.2.1
 - Fixed: on some paywalled sites (e.g. volkskrant.nl) the reader showed the subscription offer instead of the article. Forms (subscription, login, newsletter) are now removed before extraction
 - Screen-reader-only labels ("Label: Analyse", "Gepubliceerd op") no longer show up in the article
