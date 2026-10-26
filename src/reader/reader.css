@@ -581,6 +581,44 @@ body.justify-text #article-content,
 }
 
 /* ============================================
+   Auto-open Question (asked once per site)
+   ============================================ */
+#auto-open-prompt {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(var(--progress-height) + 12px + env(safe-area-inset-bottom, 0px) + var(--safe-area-bottom) + var(--safe-area-manual));
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 14px 16px;
+  background: var(--bg-color);
+  color: var(--text-color);
+  border: 2px solid var(--text-color);
+  border-radius: 8px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 15px;
+  /* Above the tap zones */
+  z-index: 1001;
+}
+
+#auto-open-prompt.hidden {
+  display: none;
+}
+
+#auto-open-question {
+  margin: 0 0 10px;
+}
+
+.auto-open-actions {
+  display: flex;
+  gap: 8px;
+}
+
+#auto-open-prompt .setting-hint {
+  margin: 8px 0 0;
+}
+
+/* ============================================
    Settings Panel
    ============================================ */
 #settings-panel {

@@ -22,7 +22,7 @@ InkPages transforms web content into a clean, paginated reading experience - lik
 - **EPUB export (new, beta)** - save any article as an e-book for your e-reader, with images scaled down and in grayscale if you chose that ([details below](#send-articles-to-your-e-reader-epub-beta)). HTML export is still available
 - **Link controls** - show links normally, as plain text, or hide link-heavy blocks ("Read more", related-story promos)
 - **Floating button** - optional draggable "Ink" button to open the reader in one tap (on by default on Android)
-- **Site memory** - auto-activates on sites you've used it on (switch off per site in Settings)
+- **Auto-open per site** - the first time you open InkPages on a site it asks whether that site's articles should open automatically (change it any time in Settings)
 - **Reading position memory** - resume where you left off
 
 ## Installation
@@ -49,7 +49,9 @@ Note: Temporary add-ons are removed when Firefox closes.
 1. Navigate to any article or news homepage
 2. Click the InkPages icon (or the floating "Ink" button, if enabled)
 3. Tap sides or swipe to turn pages
-4. Press 'S' for settings, 'Esc' to exit
+4. Tap ⋮ in the top bar (or press 'S') for settings, ✕ (or 'Esc') to exit
+
+The first time you use InkPages on a site, it asks: *Open articles on this site in InkPages automatically?* Answer **Yes** for news sites you read a lot, **No** for sites like Reddit where you only want it now and then. You can change the answer in Settings → Behavior → Auto-open on this site
 
 ## Send Articles to Your E-reader (EPUB, beta)
 
@@ -84,12 +86,17 @@ What goes into the e-book:
 | Layout | Vertical scroll | Paginated pages |
 | Navigation | Scrollbar | Tap zones + keyboard + swipe |
 | Non-article pages | Error message | TOC/listing mode with structured links |
-| Site memory | None | Remembers sites, auto-activates |
+| Site memory | None | Auto-opens articles on sites you choose |
 | Position memory | None | Saves reading position per article |
 | E-ink support | Basic | Optimized (no animations, grayscale mode) |
 | Export | None | HTML or EPUB e-book |
 
 ## Changelog
+
+### v1.3.0
+- Opening InkPages on a site no longer turns on auto-open by itself. The first time, it asks whether that site's articles should open automatically (issue #3)
+- Auto-open only opens articles. The list of links (TOC) now appears only when you open InkPages yourself, so a site's home screen (e.g. Reddit) no longer opens in InkPages
+- Settings button is now the familiar ⋮ menu icon instead of a sun (issue #4)
 
 ### v1.2.2
 - Sign-in and newsletter boxes placed between paragraphs (e.g. the Guardian's "This is not a paywall" box) are no longer shown as part of the article

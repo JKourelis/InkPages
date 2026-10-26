@@ -380,11 +380,6 @@
         return;
       }
 
-      // Load settings to check if listing mode is enabled
-      const settingsResult = await browserAPI.storage.sync.get('readerSettings');
-      const savedSettings = settingsResult.readerSettings || {};
-      const listingModeEnabled = savedSettings.listingModeEnabled !== false; // Default true
-
       // Small delay to let page fully load before checking content
       await wait(500);
 
@@ -412,11 +407,10 @@
       // The user may have opened the reader themselves while we were waiting
       if (isReaderActive || superseded()) return;
 
+      // Only articles open automatically. The TOC opened on every non-article page of a
+      // remembered site (Reddit's home screen, issue #3); it now opens only by hand.
       if (isArticle) {
         activateReaderMode();
-      } else if (listingModeEnabled) {
-        // Not an article - show listing/TOC mode (if enabled)
-        activateListingMode();
       }
     } catch (e) {
       console.warn('Failed to check auto-activation:', e);
@@ -606,11 +600,10 @@
   }
 
   /**
-   * Remember this origin as having reader mode enabled.
-   * Opening the reader remembers the site, unless auto-open was switched off for it in
-   * Settings (readerDisabledOrigins); only that switch (explicit) turns it back on.
+   * Turn auto-open on for this origin: the "Yes" answer or the Settings switch.
+   * Opening the reader no longer does this by itself (issue #3).
    */
-  async function enableReaderForOrigin({ explicit = false } = {}) {
+  async function enableReaderForOrigin() {
     try {
       const origin = window.location.origin;
       const result = await browserAPI.storage.local.get(['readerEnabledOrigins', 'readerDisabledOrigins']);
@@ -618,7 +611,6 @@
       const disabledOrigins = result.readerDisabledOrigins || [];
 
       if (disabledOrigins.includes(origin)) {
-        if (!explicit) return;
         disabledOrigins.splice(disabledOrigins.indexOf(origin), 1);
         await browserAPI.storage.local.set({ readerDisabledOrigins: disabledOrigins });
       }
@@ -688,13 +680,39 @@
       updateFloatingButtonVisibility();
       lastPageFingerprint = pageFingerprint();
 
-      // Remember this origin as having reader mode enabled
-      await enableReaderForOrigin();
+      await askAutoOpenOnce();
 
     } catch (error) {
       console.error('Failed to activate reader mode:', error);
       showNotification('Failed to activate reader mode');
     }
+  }
+
+  /**
+   * Ask whether this site's articles should open automatically, unless the user already
+   * answered (the origin is in readerEnabledOrigins or readerDisabledOrigins). Before
+   * v1.3.0 opening the reader once silently turned auto-open on for the whole site.
+   * Leaving the question unanswered changes nothing; it comes back on the next manual open.
+   */
+  async function askAutoOpenOnce() {
+    const elements = window.__einkReaderElements;
+    if (!elements || !elements.autoOpenPrompt) return;
+    try {
+      const origin = window.location.origin;
+      const result = await browserAPI.storage.local.get(['readerEnabledOrigins', 'readerDisabledOrigins']);
+      if ((result.readerEnabledOrigins || []).includes(origin)) return;
+      if ((result.readerDisabledOrigins || []).includes(origin)) return;
+      if (!isReaderActive) return;
+      elements.autoOpenSite.textContent = window.location.hostname.replace(/^www\./, '');
+      elements.autoOpenPrompt.classList.remove('hidden');
+    } catch (e) {
+      console.warn('Failed to read auto-open state:', e);
+    }
+  }
+
+  function hideAutoOpenPrompt() {
+    const elements = window.__einkReaderElements;
+    if (elements && elements.autoOpenPrompt) elements.autoOpenPrompt.classList.add('hidden');
   }
 
   /**
@@ -721,8 +739,7 @@
       updateFloatingButtonVisibility();
       lastPageFingerprint = pageFingerprint();
 
-      // Remember this origin as having reader mode enabled
-      await enableReaderForOrigin();
+      await askAutoOpenOnce();
 
     } catch (error) {
       console.error('Failed to activate listing mode:', error);
@@ -746,6 +763,7 @@
     isReaderActive = false;
     isListingMode = false;
     updateFloatingButtonVisibility();
+    hideAutoOpenPrompt();
 
     // Closing only hides the reader for this page; the site stays remembered.
     // Auto-open is turned off for a site with the "Auto-open on this site" setting.
@@ -1472,6 +1490,10 @@
       toggleListingMode: shadowRoot.getElementById('toggle-listing-mode'),
       toggleSiteAuto: shadowRoot.getElementById('toggle-site-auto'),
       siteAutoName: shadowRoot.getElementById('site-auto-name'),
+      autoOpenPrompt: shadowRoot.getElementById('auto-open-prompt'),
+      autoOpenSite: shadowRoot.getElementById('auto-open-site'),
+      autoOpenYes: shadowRoot.getElementById('auto-open-yes'),
+      autoOpenNo: shadowRoot.getElementById('auto-open-no'),
       toggleFloatingButton: shadowRoot.getElementById('toggle-floating-button'),
       floatingButtonSizeSlider: shadowRoot.getElementById('floating-button-size-slider'),
       floatingButtonSizeValue: shadowRoot.getElementById('floating-button-size-value'),
@@ -2061,10 +2083,25 @@
       if (elements.toggleSiteAuto) {
         elements.toggleSiteAuto.addEventListener('change', (e) => {
           if (e.target.checked) {
-            enableReaderForOrigin({ explicit: true });
+            enableReaderForOrigin();
           } else {
             disableReaderForOrigin();
           }
+          hideAutoOpenPrompt();
+        });
+      }
+
+      // Auto-open question: both answers are remembered, so it isn't asked again
+      if (elements.autoOpenYes) {
+        elements.autoOpenYes.addEventListener('click', () => {
+          enableReaderForOrigin();
+          hideAutoOpenPrompt();
+        });
+      }
+      if (elements.autoOpenNo) {
+        elements.autoOpenNo.addEventListener('click', () => {
+          disableReaderForOrigin();
+          hideAutoOpenPrompt();
         });
       }
 
@@ -2105,6 +2142,8 @@
 
     // Show the settings panel with the per-site auto-open state refreshed from storage
     async function openSettingsPanel() {
+      // Settings has the same choice as the auto-open question
+      hideAutoOpenPrompt();
       elements.settingsPanel.classList.remove('hidden');
       if (elements.siteAutoName) {
         elements.siteAutoName.textContent = window.location.hostname.replace(/^www\./, '');
