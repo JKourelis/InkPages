@@ -558,6 +558,7 @@ InkPages/
 ## Build/Release Process
 
 1. Bump `version` in `manifest.json`; add a README changelog entry
+   - README (and changelog) never name specific websites ("some paywalled sites", not the site); site names belong only in CLAUDE.md and commit messages
 2. Lint: `npx --yes web-ext@8 lint --source-dir . --ignore-files '*.zip'` (expect 0 errors; 5 innerHTML/Readability warnings are known). Delete the web-ext entry from `~/.npm/_npx` afterwards
 3. Build the versioned zip in the project folder (zips are gitignored) and copy it to OneDrive:
 ```bash

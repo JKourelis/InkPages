@@ -8,7 +8,7 @@ InkPages transforms web content into a clean, paginated reading experience - lik
 ## Two Modes
 
 - **Article mode** - extracts and paginates article content
-- **TOC mode** - shows organized links on news homepages (Guardian, BBC, etc.)
+- **TOC mode** - shows organized links on news homepages
 
 ## Features
 
@@ -46,12 +46,19 @@ Note: Temporary add-ons are removed when Firefox closes.
 
 ## How to Use
 
-1. Navigate to any article or news homepage
-2. Click the InkPages icon (or the floating "Ink" button, if enabled)
-3. Tap sides or swipe to turn pages
-4. Tap ⋮ in the top bar (or press 'S') for settings, ✕ (or 'Esc') to exit
+1. Open any article or news homepage
+2. Click the InkPages icon in the toolbar (on Android: tap the floating "Ink" button)
+3. Tap or click the right or left side of the page, or swipe, to turn pages
+4. Tap ⋮ at the top right (or press S) for settings: fonts, theme, images, links, export format and the Ink button
+5. Tap the download arrow at the top right to save the article. On a phone this opens the share sheet (e.g. to send it to an e-reader app); on a computer it downloads. Choose HTML or EPUB under Settings → Export Format
+6. Tap ✕ at the top left (or press Esc) to close the reader
 
-The first time you use InkPages on a site, it asks: *Open articles on this site in InkPages automatically?* Answer **Yes** for news sites you read a lot, **No** for sites like Reddit where you only want it now and then. You can change the answer in Settings → Behavior → Auto-open on this site
+The first time you use InkPages on a site, it asks: *Open articles on this site in InkPages automatically?* Answer **Yes** for news sites you read a lot, **No** for sites where you only want it now and then. You can change the answer under ⋮ → Behavior → Auto-open on this site
+
+### On a phone
+
+- Drag the "Ink" button to move it; it stays where you leave it
+- Change its size or switch it off under ⋮ → Floating Button
 
 ## Send Articles to Your E-reader (EPUB, beta)
 
@@ -95,26 +102,26 @@ What goes into the e-book:
 
 ### v1.3.0
 - Opening InkPages on a site no longer turns on auto-open by itself. The first time, it asks whether that site's articles should open automatically (issue #3)
-- Auto-open only opens articles. The list of links (TOC) now appears only when you open InkPages yourself, so a site's home screen (e.g. Reddit) no longer opens in InkPages
+- Auto-open only opens articles. The list of links (TOC) now appears only when you open InkPages yourself, so a site's home page no longer opens in InkPages by itself
 - Settings button is now the familiar ⋮ menu icon instead of a sun (issue #4)
 
 ### v1.2.2
-- Sign-in and newsletter boxes placed between paragraphs (e.g. the Guardian's "This is not a paywall" box) are no longer shown as part of the article
+- Sign-in and newsletter boxes placed between paragraphs are no longer shown as part of the article
 
 ### v1.2.1
-- Fixed: on some paywalled sites (e.g. volkskrant.nl) the reader showed the subscription offer instead of the article. Forms (subscription, login, newsletter) are now removed before extraction
+- Fixed: on some paywalled sites the reader showed the subscription offer instead of the article. Forms (subscription, login, newsletter) are now removed before extraction
 - Screen-reader-only labels ("Label: Analyse", "Gepubliceerd op") no longer show up in the article
 
 ### v1.2.0
 - Export as EPUB: choose HTML or EPUB under Settings → Export Format; the export button uses that format. EPUB includes the images, scaled down (max 1600 px wide) and grayscale when "Force grayscale" is on
 - Exports follow "Hide images": no images, captions kept as an "Image:" note, photo credits dropped
 - Smaller images: by default at most a third of the page tall (Image size: Small / Medium / Large), so text comes first and a lead photo no longer leaves page 1 empty
-- "Hide images" keeps informative captions as a short note and drops photo credits ("Beeld ANP", "Foto: Reuters") and credit-only figures
+- "Hide images" keeps informative captions as a short note and drops photo credits ("Photo: …") and credit-only figures
 - Images load straight away and the pages are recounted when they arrive, so text no longer shifts while reading
 - Fixed: tapping a Links button reset the font choice
 
 ### v1.1.4
-- Auto-open now works on sites that switch articles without reloading the page (e.g. volkskrant.nl). Before, with the TOC off, every article opened from the site's own links needed a tap on the InkPages icon
+- Auto-open now works on sites that switch articles without reloading the page. Before, with the TOC off, every article opened from the site's own links needed a tap on the InkPages icon
 - Going back after such a switch closes the previous article's reader instead of leaving it on top
 - Turning "Auto-open on this site" off now sticks; opening the reader by hand no longer switches it back on
 
