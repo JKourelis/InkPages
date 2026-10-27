@@ -74,7 +74,7 @@
 
   <!-- Asked once per site, after opening the reader by hand -->
   <div id="auto-open-prompt" class="hidden" role="dialog" aria-labelledby="auto-open-question">
-    <p id="auto-open-question">Open articles on <span id="auto-open-site">this site</span> in InkPages automatically?</p>
+    <p id="auto-open-question">Open articles on this site in InkPages automatically?</p>
     <div class="auto-open-actions">
       <button id="auto-open-yes" class="font-btn">Yes</button>
       <button id="auto-open-no" class="font-btn">No</button>
@@ -210,18 +210,14 @@
         <div class="setting-toggles">
           <label class="toggle-label">
             <input type="checkbox" id="toggle-site-auto" class="toggle-input">
-            <span class="toggle-text">Auto-open on <span id="site-auto-name">this site</span></span>
+            <span class="toggle-text">Auto-open articles on <span class="setting-site">this site</span></span>
           </label>
-        </div>
-        <p class="setting-hint">Articles on this site open in InkPages automatically</p>
-
-        <div class="setting-toggles" style="margin-top:10px;">
           <label class="toggle-label">
-            <input type="checkbox" id="toggle-listing-mode" class="toggle-input" checked>
-            <span class="toggle-text">Show TOC on homepages</span>
+            <input type="checkbox" id="toggle-site-toc" class="toggle-input">
+            <span class="toggle-text">Auto-open homepage and sections on <span class="setting-site">this site</span></span>
           </label>
         </div>
-        <p class="setting-hint">Opening InkPages on a page that isn't an article shows a clean list of links. Auto-open only opens articles</p>
+        <p class="setting-hint">The homepage and section pages open as a list of links. Opening InkPages yourself works either way</p>
       </div>
 
       <!-- Floating Button -->

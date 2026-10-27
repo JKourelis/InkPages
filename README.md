@@ -22,7 +22,7 @@ InkPages transforms web content into a clean, paginated reading experience - lik
 - **EPUB export (new, beta)** - save any article as an e-book for your e-reader, with images scaled down and in grayscale if you chose that ([details below](#send-articles-to-your-e-reader-epub-beta)). HTML export is still available
 - **Link controls** - show links normally, as plain text, or hide link-heavy blocks ("Read more", related-story promos)
 - **Floating button** - optional draggable "Ink" button to open the reader in one tap (on by default on Android)
-- **Auto-open per site** - the first time you open InkPages on a site it asks whether that site's articles should open automatically (change it any time in Settings)
+- **Auto-open per site** - InkPages asks once per site whether it should open automatically: articles, and the homepage and section pages as a list of links, are separate choices (change them any time in Settings)
 - **Reading position memory** - resume where you left off
 
 ## Installation
@@ -53,7 +53,11 @@ Note: Temporary add-ons are removed when Firefox closes.
 5. Tap the download arrow at the top right to save the article. On a phone this opens the share sheet (e.g. to send it to an e-reader app); on a computer it downloads. Choose HTML or EPUB under Settings → Export Format
 6. Tap ✕ at the top left (or press Esc) to close the reader
 
-The first time you use InkPages on a site, it asks: *Open articles on this site in InkPages automatically?* Answer **Yes** for news sites you read a lot, **No** for sites where you only want it now and then. You can change the answer under ⋮ → Behavior → Auto-open on this site
+The first time you open InkPages on a site, it asks about what you opened it on:
+- On an article: *Open articles on this site in InkPages automatically?*
+- On the homepage or a section page: *Open the homepage and section pages of this site in InkPages automatically?* (shown as a list of links)
+
+Answer **Yes** for news sites you read a lot, **No** for sites where you only want it now and then. Each question is asked once per site. You can change both answers under ⋮ → Behavior
 
 ### On a phone
 
@@ -93,12 +97,17 @@ What goes into the e-book:
 | Layout | Vertical scroll | Paginated pages |
 | Navigation | Scrollbar | Tap zones + keyboard + swipe |
 | Non-article pages | Error message | TOC/listing mode with structured links |
-| Site memory | None | Auto-opens articles on sites you choose |
+| Site memory | None | Auto-opens articles and homepages on sites you choose |
 | Position memory | None | Saves reading position per article |
 | E-ink support | Basic | Optimized (no animations, grayscale mode) |
 | Export | None | HTML or EPUB e-book |
 
 ## Changelog
+
+### v1.4.0
+- The homepage and section pages can open automatically again, as a list of links, but now as a separate choice per site. InkPages asks when you open it on a homepage; opening it on an article asks about articles only
+- Sites saved by older versions (which saved every site you opened InkPages on) still open automatically, but InkPages asks once whether to keep that
+- Settings → Behavior has two switches per site (articles; homepage and sections) instead of the global "Show TOC on homepages" switch. Opening InkPages yourself on a page that isn't an article always shows the list of links
 
 ### v1.3.0
 - Opening InkPages on a site no longer turns on auto-open by itself. The first time, it asks whether that site's articles should open automatically (issue #3)

@@ -44,4 +44,30 @@ browserAPI.browserAction.onClicked.addListener(async (tab) => {
   }
 });
 
+/**
+ * One-time migration (v1.4.0). Before v1.3.0 opening the reader once saved the site, and its
+ * link pages (homepage, sections) then opened as a TOC too while "Show TOC on homepages" was
+ * on (the default). Those sites keep opening automatically but are marked legacy, so the
+ * reader asks once whether to keep that, separately for articles and link pages.
+ */
+async function migrateAutoOpen() {
+  const local = await browserAPI.storage.local.get(['autoOpenMigrated', 'readerEnabledOrigins']);
+  if (local.autoOpenMigrated) return;
+
+  const sites = local.readerEnabledOrigins || [];
+  const sync = await browserAPI.storage.sync.get('readerSettings');
+  const tocWasOn = (sync.readerSettings || {}).listingModeEnabled !== false;
+
+  await browserAPI.storage.local.set({
+    readerLegacyOrigins: sites,
+    tocEnabledOrigins: tocWasOn ? sites : [],
+    tocLegacyOrigins: tocWasOn ? sites : [],
+    autoOpenMigrated: true
+  });
+}
+
+migrateAutoOpen().catch(error => {
+  console.warn('Auto-open migration failed:', error);
+});
+
 console.log('InkPages background script loaded');

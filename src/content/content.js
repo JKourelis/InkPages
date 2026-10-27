@@ -371,12 +371,13 @@
     try {
       const origin = window.location.origin;
 
-      // Check if this origin has reader mode enabled
-      const result = await browserAPI.storage.local.get('readerEnabledOrigins');
-      const enabledOrigins = result.readerEnabledOrigins || [];
+      // Articles and link pages (homepage, sections) are separate choices per site
+      const result = await browserAPI.storage.local.get(['readerEnabledOrigins', 'tocEnabledOrigins']);
+      const openArticles = (result.readerEnabledOrigins || []).includes(origin);
+      const openLinkPages = (result.tocEnabledOrigins || []).includes(origin);
 
-      if (!enabledOrigins.includes(origin)) {
-        // This origin doesn't have reader mode enabled
+      if (!openArticles && !openLinkPages) {
+        // Nothing opens automatically on this origin
         return;
       }
 
@@ -407,10 +408,13 @@
       // The user may have opened the reader themselves while we were waiting
       if (isReaderActive || superseded()) return;
 
-      // Only articles open automatically. The TOC opened on every non-article page of a
-      // remembered site (Reddit's home screen, issue #3); it now opens only by hand.
+      // The TOC used to open on every non-article page of a remembered site (Reddit's home
+      // screen, issue #3); it now needs its own Yes. A page that declares itself an article
+      // never opens as a TOC: its text may just not have rendered yet.
       if (isArticle) {
-        activateReaderMode();
+        if (openArticles) activateReaderMode();
+      } else if (openLinkPages && !isDeclaredArticle()) {
+        activateListingMode();
       }
     } catch (e) {
       console.warn('Failed to check auto-activation:', e);
@@ -599,29 +603,48 @@
     return false;
   }
 
+  // Per-site auto-open, one choice for articles and one for link pages (homepage and
+  // sections, shown as a TOC). "enabled" opens automatically, "disabled" was answered No or
+  // switched off. "legacy" sites were saved before v1.4.0, when opening the reader once saved
+  // the site: they still open automatically, but the reader asks once whether to keep that.
+  // The legacy lists are filled once by background.js.
+  const AUTO_OPEN_KEYS = {
+    article: { enabled: 'readerEnabledOrigins', disabled: 'readerDisabledOrigins', legacy: 'readerLegacyOrigins' },
+    toc: { enabled: 'tocEnabledOrigins', disabled: 'tocDisabledOrigins', legacy: 'tocLegacyOrigins' }
+  };
+
+  // 'enabled' | 'legacy' | 'disabled' | 'unknown' for this origin
+  async function getAutoOpenState(kind) {
+    const keys = AUTO_OPEN_KEYS[kind];
+    const origin = window.location.origin;
+    const result = await browserAPI.storage.local.get([keys.enabled, keys.disabled, keys.legacy]);
+    if ((result[keys.enabled] || []).includes(origin)) {
+      return (result[keys.legacy] || []).includes(origin) ? 'legacy' : 'enabled';
+    }
+    if ((result[keys.disabled] || []).includes(origin)) return 'disabled';
+    return 'unknown';
+  }
+
   /**
-   * Turn auto-open on for this origin: the "Yes" answer or the Settings switch.
-   * Opening the reader no longer does this by itself (issue #3).
+   * Save a Yes/No for this origin: the auto-open question or a Settings switch.
+   * Opening the reader never does this by itself (issue #3).
    */
-  async function enableReaderForOrigin() {
+  async function setAutoOpen(kind, on) {
+    const keys = AUTO_OPEN_KEYS[kind];
+    const origin = window.location.origin;
     try {
-      const origin = window.location.origin;
-      const result = await browserAPI.storage.local.get(['readerEnabledOrigins', 'readerDisabledOrigins']);
-      const enabledOrigins = result.readerEnabledOrigins || [];
-      const disabledOrigins = result.readerDisabledOrigins || [];
-
-      if (disabledOrigins.includes(origin)) {
-        disabledOrigins.splice(disabledOrigins.indexOf(origin), 1);
-        await browserAPI.storage.local.set({ readerDisabledOrigins: disabledOrigins });
-      }
-
-      if (!enabledOrigins.includes(origin)) {
-        enabledOrigins.push(origin);
-        await browserAPI.storage.local.set({ readerEnabledOrigins: enabledOrigins });
-        console.log('Reader mode enabled for origin:', origin);
-      }
+      const result = await browserAPI.storage.local.get([keys.enabled, keys.disabled, keys.legacy]);
+      const without = list => (list || []).filter(o => o !== origin);
+      const enabled = without(result[keys.enabled]);
+      const disabled = without(result[keys.disabled]);
+      (on ? enabled : disabled).push(origin);
+      await browserAPI.storage.local.set({
+        [keys.enabled]: enabled,
+        [keys.disabled]: disabled,
+        [keys.legacy]: without(result[keys.legacy])
+      });
     } catch (e) {
-      console.warn('Failed to save enabled origin:', e);
+      console.warn('Failed to save auto-open choice:', e);
     }
   }
 
@@ -639,17 +662,9 @@
       if (isArticle) {
         activateReaderMode();
       } else {
-        // Check if listing mode is enabled in settings
-        const settingsResult = await browserAPI.storage.sync.get('readerSettings');
-        const savedSettings = settingsResult.readerSettings || {};
-        const listingModeEnabled = savedSettings.listingModeEnabled !== false; // Default true
-
-        if (listingModeEnabled) {
-          activateListingMode();
-        } else {
-          // Listing mode disabled, try article mode anyway
-          activateReaderMode();
-        }
+        await activateListingMode();
+        // No list of links found: try article mode anyway
+        if (!isReaderActive) activateReaderMode();
       }
     }
   }
@@ -680,7 +695,7 @@
       updateFloatingButtonVisibility();
       lastPageFingerprint = pageFingerprint();
 
-      await askAutoOpenOnce();
+      await askAutoOpenOnce('article');
 
     } catch (error) {
       console.error('Failed to activate reader mode:', error);
@@ -688,22 +703,27 @@
     }
   }
 
+  // Which choice the open question is about ('article' | 'toc'), for its Yes/No buttons
+  let autoOpenPromptKind = null;
+
   /**
-   * Ask whether this site's articles should open automatically, unless the user already
-   * answered (the origin is in readerEnabledOrigins or readerDisabledOrigins). Before
-   * v1.3.0 opening the reader once silently turned auto-open on for the whole site.
-   * Leaving the question unanswered changes nothing; it comes back on the next manual open.
+   * Ask whether this site should open automatically, about what is on screen: an article
+   * asks about articles, the TOC about link pages. Not asked once answered. Legacy sites
+   * (saved before v1.4.0) already open automatically and are asked whether to keep that.
+   * Leaving the question unanswered changes nothing; it comes back next time.
    */
-  async function askAutoOpenOnce() {
+  async function askAutoOpenOnce(kind) {
     const elements = window.__einkReaderElements;
     if (!elements || !elements.autoOpenPrompt) return;
     try {
-      const origin = window.location.origin;
-      const result = await browserAPI.storage.local.get(['readerEnabledOrigins', 'readerDisabledOrigins']);
-      if ((result.readerEnabledOrigins || []).includes(origin)) return;
-      if ((result.readerDisabledOrigins || []).includes(origin)) return;
+      const state = await getAutoOpenState(kind);
+      if (state === 'enabled' || state === 'disabled') return;
       if (!isReaderActive) return;
-      elements.autoOpenSite.textContent = window.location.hostname.replace(/^www\./, '');
+      const site = window.location.hostname.replace(/^www\./, '');
+      const what = kind === 'toc' ? 'the homepage and section pages of' : 'articles on';
+      const verb = state === 'legacy' ? 'Keep opening' : 'Open';
+      elements.autoOpenQuestion.textContent = `${verb} ${what} ${site} in InkPages automatically?`;
+      autoOpenPromptKind = kind;
       elements.autoOpenPrompt.classList.remove('hidden');
     } catch (e) {
       console.warn('Failed to read auto-open state:', e);
@@ -711,6 +731,7 @@
   }
 
   function hideAutoOpenPrompt() {
+    autoOpenPromptKind = null;
     const elements = window.__einkReaderElements;
     if (elements && elements.autoOpenPrompt) elements.autoOpenPrompt.classList.add('hidden');
   }
@@ -739,7 +760,7 @@
       updateFloatingButtonVisibility();
       lastPageFingerprint = pageFingerprint();
 
-      await askAutoOpenOnce();
+      await askAutoOpenOnce('toc');
 
     } catch (error) {
       console.error('Failed to activate listing mode:', error);
@@ -766,47 +787,7 @@
     hideAutoOpenPrompt();
 
     // Closing only hides the reader for this page; the site stays remembered.
-    // Auto-open is turned off for a site with the "Auto-open on this site" setting.
-  }
-
-  /**
-   * Whether this origin is in the auto-open (sticky) list
-   */
-  async function isReaderEnabledForOrigin() {
-    try {
-      const result = await browserAPI.storage.local.get('readerEnabledOrigins');
-      return (result.readerEnabledOrigins || []).includes(window.location.origin);
-    } catch (e) {
-      console.warn('Failed to read enabled origins:', e);
-      return false;
-    }
-  }
-
-  /**
-   * Remove this origin from the enabled origins list (the Settings switch), and keep it off
-   * when the reader is opened by hand later
-   */
-  async function disableReaderForOrigin() {
-    try {
-      const origin = window.location.origin;
-      const result = await browserAPI.storage.local.get(['readerEnabledOrigins', 'readerDisabledOrigins']);
-      const enabledOrigins = result.readerEnabledOrigins || [];
-      const disabledOrigins = result.readerDisabledOrigins || [];
-
-      if (!disabledOrigins.includes(origin)) {
-        disabledOrigins.push(origin);
-        await browserAPI.storage.local.set({ readerDisabledOrigins: disabledOrigins });
-      }
-
-      const index = enabledOrigins.indexOf(origin);
-      if (index !== -1) {
-        enabledOrigins.splice(index, 1);
-        await browserAPI.storage.local.set({ readerEnabledOrigins: enabledOrigins });
-        console.log('Reader mode disabled for origin:', origin);
-      }
-    } catch (e) {
-      console.warn('Failed to remove enabled origin:', e);
-    }
+    // Auto-open is turned off for a site with the switches in Settings → Behavior.
   }
 
 
@@ -1487,11 +1468,11 @@
       toggleJustify: shadowRoot.getElementById('toggle-justify'),
       toggleGrayscale: shadowRoot.getElementById('toggle-grayscale'),
       toggleNoImages: shadowRoot.getElementById('toggle-no-images'),
-      toggleListingMode: shadowRoot.getElementById('toggle-listing-mode'),
       toggleSiteAuto: shadowRoot.getElementById('toggle-site-auto'),
-      siteAutoName: shadowRoot.getElementById('site-auto-name'),
+      toggleSiteToc: shadowRoot.getElementById('toggle-site-toc'),
+      siteNames: shadowRoot.querySelectorAll('.setting-site'),
       autoOpenPrompt: shadowRoot.getElementById('auto-open-prompt'),
-      autoOpenSite: shadowRoot.getElementById('auto-open-site'),
+      autoOpenQuestion: shadowRoot.getElementById('auto-open-question'),
       autoOpenYes: shadowRoot.getElementById('auto-open-yes'),
       autoOpenNo: shadowRoot.getElementById('auto-open-no'),
       toggleFloatingButton: shadowRoot.getElementById('toggle-floating-button'),
@@ -1525,7 +1506,6 @@
       grayscale: false,
       noImages: false,
       safeAreaManual: 0,
-      listingModeEnabled: true,
       linkMode: 'normal',  // 'normal' | 'plain' | 'hide'
       imageSize: 'small',  // 'small' | 'medium' | 'large' (share of the page height)
       exportFormat: 'html',  // 'html' | 'epub'
@@ -1654,10 +1634,6 @@
       if (elements.safeAreaSlider) {
         elements.safeAreaSlider.value = settings.safeAreaManual;
         elements.safeAreaValue.textContent = `${settings.safeAreaManual}px`;
-      }
-
-      if (elements.toggleListingMode) {
-        elements.toggleListingMode.checked = settings.listingModeEnabled;
       }
 
       if (elements.toggleFloatingButton) {
@@ -2079,39 +2055,23 @@
         elements.safeAreaSlider.addEventListener('change', saveSettings);
       }
 
-      // Per-site auto-open toggle
-      if (elements.toggleSiteAuto) {
-        elements.toggleSiteAuto.addEventListener('change', (e) => {
-          if (e.target.checked) {
-            enableReaderForOrigin();
-          } else {
-            disableReaderForOrigin();
-          }
+      // Per-site auto-open switches (articles, and link pages shown as a TOC)
+      [[elements.toggleSiteAuto, 'article'], [elements.toggleSiteToc, 'toc']].forEach(([toggle, kind]) => {
+        if (!toggle) return;
+        toggle.addEventListener('change', (e) => {
+          setAutoOpen(kind, e.target.checked);
           hideAutoOpenPrompt();
         });
-      }
+      });
 
       // Auto-open question: both answers are remembered, so it isn't asked again
-      if (elements.autoOpenYes) {
-        elements.autoOpenYes.addEventListener('click', () => {
-          enableReaderForOrigin();
+      [[elements.autoOpenYes, true], [elements.autoOpenNo, false]].forEach(([button, answer]) => {
+        if (!button) return;
+        button.addEventListener('click', () => {
+          if (autoOpenPromptKind) setAutoOpen(autoOpenPromptKind, answer);
           hideAutoOpenPrompt();
         });
-      }
-      if (elements.autoOpenNo) {
-        elements.autoOpenNo.addEventListener('click', () => {
-          disableReaderForOrigin();
-          hideAutoOpenPrompt();
-        });
-      }
-
-      // Listing mode toggle
-      if (elements.toggleListingMode) {
-        elements.toggleListingMode.addEventListener('change', (e) => {
-          settings.listingModeEnabled = e.target.checked;
-          saveSettings();
-        });
-      }
+      });
 
       if (elements.toggleFloatingButton) {
         elements.toggleFloatingButton.addEventListener('change', (e) => {
@@ -2145,11 +2105,16 @@
       // Settings has the same choice as the auto-open question
       hideAutoOpenPrompt();
       elements.settingsPanel.classList.remove('hidden');
-      if (elements.siteAutoName) {
-        elements.siteAutoName.textContent = window.location.hostname.replace(/^www\./, '');
-      }
-      if (elements.toggleSiteAuto) {
-        elements.toggleSiteAuto.checked = await isReaderEnabledForOrigin();
+      const site = window.location.hostname.replace(/^www\./, '');
+      elements.siteNames.forEach(el => { el.textContent = site; });
+      for (const [toggle, kind] of [[elements.toggleSiteAuto, 'article'], [elements.toggleSiteToc, 'toc']]) {
+        if (!toggle) continue;
+        try {
+          const state = await getAutoOpenState(kind);
+          toggle.checked = state === 'enabled' || state === 'legacy';
+        } catch (e) {
+          console.warn('Failed to read auto-open state:', e);
+        }
       }
     }
 
