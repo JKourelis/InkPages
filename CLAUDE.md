@@ -391,6 +391,16 @@ Settings → Export Format (`settings.exportFormat`: `'html'` | `'epub'`, defaul
 - Share sheet after a multi-second EPUB build may have lost user activation; the code falls back to a download. Object URLs are revoked after 10s (straight away could cancel a large download)
 - Verified with epubcheck 5.1.0 (0 errors/warnings) on mock articles (cross-origin images, srcset, webp, transparent PNG, 404, 1px, custom elements, control chars), Wikipedia and The Guardian. Not yet verified on real volkskrant.nl markup or on Send to Kindle / Boox / KOReader
 
+### Markdown Export (v1.5.0, issue #6)
+
+Third Export Format option (`settings.exportFormat: 'markdown'`, file `.md`, type `text/markdown`). Asked for by a desktop user who copied the article text into a text editor; that doesn't work across paginated columns.
+- `src/content/markdown.js` (content script before content.js, global `InkPagesMarkdown.build()`), no library: converts `prepareExportDocument().body`, so it follows "Hide images" like the other exports (images become `![alt](url)` links; hidden images leave `**Image:** caption`)
+- Output: `# title`, byline · site, `Source: <url>`, then the article. GitHub-style tables (first row as header; one-column tables or tables holding lists/quotes/code/tables are layout tables and give their content as blocks), fenced code blocks (fence longer than any backtick run inside), tight nested lists (a nested list follows the item text without a blank line only when it starts with "- " or "1. "), `**`/`*`/`~~`, `<br>` as a hard line break, two `<br>` as a new paragraph
+- Escaping: backslash, backtick and `*` always; `_` unless inside a word; `<` before a tag-like letter; `&` before an entity; line starts that would make a heading, quote, list or rule. Brackets are escaped only in link/image text or as `](`/`]:`, so citations like [18] stay readable
+- Links: absolute (relative ones resolved against the page), parentheses and spaces percent-encoded; `#fragment` links become plain text; a link whose text is its URL becomes `<url>`. `data:` image URLs are skipped (lazy-load placeholders); the next of `src`, `data-src`, srcset is used
+- Readability strips class names, so code block languages are not known
+- Verified: rendered back with markdown-it-py, the text equals the reader text character for character (whitespace ignored) on a mock article and on two Wikipedia articles and an MDN page
+
 ### Image Sizing and Captions (v1.2.0)
 
 - Text first: images are capped at a share of the page height: `--page-height` (set in `setupPagination()` from the viewport) x `--image-fraction` (Small 0.33 default, Medium 0.5, Large 0.7; `settings.imageSize`, host classes `.images-medium` / `.images-large`). Before, images could be 70vh and figures 80vh, so a lead photo didn't fit under the title and page 1 stayed empty
@@ -484,6 +494,7 @@ InkPages/
     │   └── background.js   # Toolbar click handling
     ├── content/
     │   ├── epub.js         # EPUB export (zip writer, XHTML cleanup, image packing)
+    │   ├── markdown.js     # Markdown export (HTML to Markdown converter)
     │   └── content.js      # Main logic: extraction, rendering, pagination
     ├── lib/
     │   └── Readability.js  # Mozilla Readability (Apache 2.0)
@@ -595,7 +606,7 @@ cp InkPages_vX.Y.Z.zip ~/OneDrive/
 - **Descender Buffer**: `content.js` line ~1672 (small buffer to prevent text touching progress bar)
 - **Header Minimize**: `content.js` line ~1618 (header hidden on pages 2+)
 - **Reading Position Restore**: `content.js` line ~1792 (`paginateNewContent` function)
-- **Export (HTML/EPUB)**: `content.js` line ~2118 (`exportArticle`), ~2195 (`prepareExportDocument`); EPUB packaging in `epub.js`
+- **Export (HTML/EPUB/Markdown)**: `content.js` line ~2118 (`exportArticle`), ~2195 (`prepareExportDocument`); EPUB packaging in `epub.js`, Markdown conversion in `markdown.js`
 - **Link Block Detection**: `content.js` line ~2512 (`markLinkBlocks` function)
 - **Caption/Credit Tagging**: `content.js` line ~2571 (`markCaptions` function)
 - **Link Mode CSS**: `reader.css` line ~171

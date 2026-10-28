@@ -20,6 +20,7 @@ InkPages transforms web content into a clean, paginated reading experience - lik
 - **E-ink optimizations** - bold text, justify, grayscale, hide images (captions stay as a short note, photo credits go)
 - **Text first** - images are kept to a third of the page by default (Small / Medium / Large), so a lead photo no longer pushes the text to page 2
 - **EPUB export (new, beta)** - save any article as an e-book for your e-reader, with images scaled down and in grayscale if you chose that ([details below](#send-articles-to-your-e-reader-epub-beta)). HTML export is still available
+- **Markdown export** - the whole article as plain text with simple formatting (headings, lists, links, tables), to paste into your notes or edit elsewhere
 - **Link controls** - show links normally, as plain text, or hide link-heavy blocks ("Read more", related-story promos)
 - **Floating button** - optional draggable "Ink" button to open the reader in one tap (on by default on Android)
 - **Auto-open per site** - InkPages asks once per site whether it should open automatically: articles, and the homepage and section pages as a list of links, are separate choices (change them any time in Settings)
@@ -50,7 +51,7 @@ Note: Temporary add-ons are removed when Firefox closes.
 2. Click the InkPages icon in the toolbar (on Android: tap the floating "Ink" button)
 3. Tap or click the right or left side of the page, or swipe, to turn pages
 4. Tap ⋮ at the top right (or press S) for settings: fonts, theme, images, links, export format and the Ink button
-5. Tap the download arrow at the top right to save the article. On a phone this opens the share sheet (e.g. to send it to an e-reader app); on a computer it downloads. Choose HTML or EPUB under Settings → Export Format
+5. Tap the download arrow at the top right to save the article. On a phone this opens the share sheet (e.g. to send it to an e-reader app); on a computer it downloads. Choose HTML, EPUB or Markdown under Settings → Export Format
 6. Tap ✕ at the top left (or press Esc) to close the reader
 
 The first time you open InkPages on a site, it asks about what you opened it on:
@@ -100,9 +101,12 @@ What goes into the e-book:
 | Site memory | None | Auto-opens articles and homepages on sites you choose |
 | Position memory | None | Saves reading position per article |
 | E-ink support | Basic | Optimized (no animations, grayscale mode) |
-| Export | None | HTML or EPUB e-book |
+| Export | None | HTML, EPUB e-book or Markdown |
 
 ## Changelog
+
+### v1.5.0
+- Export as Markdown (.md): choose Markdown under Settings → Export Format. You get the whole article as one plain-text file with headings, lists, links and tables, ready to paste into your notes or edit (issue #6)
 
 ### v1.4.0
 - The homepage and section pages can open automatically again, as a list of links, but now as a separate choice per site. InkPages asks when you open it on a homepage; opening it on an article asks about articles only
@@ -200,7 +204,7 @@ What goes into the e-book:
 
 - **Chrome Extension** - Manifest V3 version for Chrome/Edge
 - **Customizable Shortcuts** - User-configurable keyboard shortcuts
-- **More Export Formats** - PDF export (HTML and EPUB available now)
+- **More Export Formats** - PDF export (HTML, EPUB and Markdown available now)
 - **Offline Reading** - Cache articles for offline access
 - **Annotations** - Highlight and note-taking support
 - **Reading Statistics** - Track reading time and articles read

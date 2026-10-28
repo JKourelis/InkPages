@@ -1495,6 +1495,7 @@
     let pageWidth = 0;
     // Don't save reading position until the saved one has been restored, or the initial page 0 overwrites it
     let positionRestored = false;
+    const EXPORT_NAMES = { html: 'HTML', epub: 'EPUB', markdown: 'Markdown' };
     let settings = {
       fontFamily: 'serif',
       fontSize: 18,
@@ -1508,7 +1509,7 @@
       safeAreaManual: 0,
       linkMode: 'normal',  // 'normal' | 'plain' | 'hide'
       imageSize: 'small',  // 'small' | 'medium' | 'large' (share of the page height)
-      exportFormat: 'html',  // 'html' | 'epub'
+      exportFormat: 'html',  // 'html' | 'epub' | 'markdown'
       floatingButtonEnabled: isLikelyAndroid,
       floatingButtonSize: 50
     };
@@ -1608,7 +1609,7 @@
         btn.classList.toggle('active', btn.dataset.export === settings.exportFormat);
       });
       if (elements.btnExport) {
-        elements.btnExport.title = settings.exportFormat === 'epub' ? 'Export as EPUB' : 'Export as HTML';
+        elements.btnExport.title = `Export as ${EXPORT_NAMES[settings.exportFormat] || 'HTML'}`;
       }
 
       if (elements.fontSizeSlider) {
@@ -2172,7 +2173,7 @@
       }
     }
 
-    // Export article as self-contained HTML file
+    // Export the article as an HTML, EPUB or Markdown file (Settings → Export Format)
     async function exportArticle() {
       if (!articleData) {
         console.error('InkPages: No article data to export');
@@ -2212,6 +2213,16 @@
           return;
         }
         filename = `${cleanTitle}.epub`;
+      } else if (settings.exportFormat === 'markdown') {
+        const markdown = InkPagesMarkdown.build({
+          title: articleData.title,
+          byline: articleData.byline,
+          siteName: articleData.siteName,
+          sourceUrl: articleData.sourceUrl,
+          contentRoot: prepareExportDocument().body
+        });
+        blob = new Blob([markdown], { type: 'text/markdown' });
+        filename = `${cleanTitle}.md`;
       } else {
         blob = new Blob([generateExportHTML()], { type: 'text/html' });
         filename = `${cleanTitle}.html`;

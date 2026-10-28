@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "InkPages",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Transform web content into a clean, paginated reading experience - like a real book. Optimized for e-ink devices.",
 
   "icons": {
@@ -33,7 +33,7 @@
   "content_scripts": [
     {
       "matches": ["http://*/*", "https://*/*"],
-      "js": ["src/lib/Readability.js", "src/content/epub.js", "src/content/content.js"],
+      "js": ["src/lib/Readability.js", "src/content/epub.js", "src/content/markdown.js", "src/content/content.js"],
       "run_at": "document_idle"
     }
   ],
