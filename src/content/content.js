@@ -1141,6 +1141,25 @@
     // Remove elements that can change navigation or rewrite attributes (SVG <set>/<animate> can set href)
     doc.body.querySelectorAll('base, meta, link, set, animate').forEach(el => el.remove());
 
+    // Unwrap the page's web components (MDN's <interactive-example>): the reader lives in the
+    // page, so the page's scripts would bring them back to life inside it, as empty widgets
+    // with their own buttons. Their children (server-rendered content) stay. <p is="..."> is a
+    // component too; serializing keeps an element's "is" even without the attribute, so it
+    // becomes a plain copy
+    doc.body.querySelectorAll('*').forEach(el => {
+      if (el.namespaceURI !== 'http://www.w3.org/1999/xhtml') return;
+      if (el.localName.includes('-')) {
+        el.replaceWith(...el.childNodes);
+      } else if (el.hasAttribute('is')) {
+        const plain = doc.createElement(el.localName);
+        for (const attr of el.attributes) {
+          if (attr.name !== 'is') plain.setAttribute(attr.name, attr.value);
+        }
+        plain.append(...el.childNodes);
+        el.replaceWith(plain);
+      }
+    });
+
     doc.body.querySelectorAll('*').forEach(el => {
       for (const attr of Array.from(el.attributes)) {
         const name = attr.name.toLowerCase();
@@ -1306,10 +1325,42 @@
   }
 
   /**
+   * Code blocks that exist only inside web components' shadow DOM (MDN's <mdn-code-example>):
+   * cloneNode() copies no shadow roots, so they silently vanished from the article. In the
+   * copy, such a component is replaced by its <pre> blocks (and keeps its own children).
+   * Only <pre>: the rest of a shadow root is mostly controls (copy/run buttons, menus).
+   */
+  function copyShadowCodeBlocks(clone) {
+    if (!document.body || !clone.body) return;
+    const originals = Array.from(document.body.querySelectorAll('*'));
+    const copies = Array.from(clone.body.querySelectorAll('*'));
+    if (originals.length !== copies.length) return;
+
+    const shadowCode = (root) => {
+      const found = Array.from(root.querySelectorAll('pre'));
+      root.querySelectorAll('*').forEach(el => {
+        const inner = el.openOrClosedShadowRoot || el.shadowRoot;
+        if (inner) found.push(...shadowCode(inner));
+      });
+      return found;
+    };
+
+    originals.forEach((host, i) => {
+      // Firefox lets extensions see closed shadow roots too
+      const root = host.openOrClosedShadowRoot || host.shadowRoot;
+      const copy = copies[i];
+      if (!root || copy.localName !== host.localName || host.querySelector('pre')) return;
+      const code = shadowCode(root);
+      if (code.length) copy.replaceWith(...code.map(pre => pre.cloneNode(true)), ...copy.childNodes);
+    });
+  }
+
+  /**
    * Extract article using Readability
    */
   function extractArticle() {
     const documentClone = document.cloneNode(true);
+    copyShadowCodeBlocks(documentClone);
 
     // Pre-process to remove social embeds and cookie placeholders (Safari-like behavior)
     preprocessDOM(documentClone);

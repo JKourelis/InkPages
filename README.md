@@ -107,6 +107,8 @@ What goes into the e-book:
 
 ### v1.5.0
 - Export as Markdown (.md): choose Markdown under Settings → Export Format. You get the whole article as one plain-text file with headings, lists, links and tables, ready to paste into your notes or edit (issue #6)
+- Code examples on sites built from web components now show up in the reader and in exports; before they were silently left out
+- Those sites' interactive widgets (live demos, lazily loaded tables) no longer appear as empty boxes in the reader
 
 ### v1.4.0
 - The homepage and section pages can open automatically again, as a list of links, but now as a separate choice per site. InkPages asks when you open it on a homepage; opening it on an article asks about articles only
