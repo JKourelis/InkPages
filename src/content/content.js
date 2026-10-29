@@ -1204,6 +1204,11 @@
    * This mimics Safari Reader's behavior of filtering out social embeds, cookie notices, etc.
    */
   function preprocessDOM(doc) {
+    // Collapsed sections that find-in-page can open (hidden="until-found") are real content:
+    // Wikipedia's mobile layout folds every section this way, and Readability skips hidden
+    // elements, so on a phone only the introduction was left
+    doc.querySelectorAll('[hidden="until-found"]').forEach(el => el.removeAttribute('hidden'));
+
     // Remove social media embed placeholders and cookie consent blocks
     const selectorsToRemove = [
       // Social media embeds and placeholders
@@ -1256,6 +1261,18 @@
     });
 
     removeSignInGates(doc);
+
+    // Site logos: a link to a home page holding only an image or svg, no text. Inside the
+    // article container (volkskrant.nl longreads) Readability keeps it, as it has no link text
+    doc.querySelectorAll('a[href]').forEach(link => {
+      if (link.textContent.trim() || !link.querySelector('img, svg, picture')) return;
+      try {
+        const url = new URL(link.getAttribute('href'), document.baseURI);
+        if (url.pathname === '/' && !url.search) link.remove();
+      } catch {
+        // Not a valid URL: leave it
+      }
+    });
 
     // Remove elements containing cookie/consent text patterns (multi-language)
     const consentPatterns = [
