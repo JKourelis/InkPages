@@ -25,6 +25,10 @@
   let isListingMode = false;
   let readerOverlay = null;
   let shadowRoot = null;
+  // Full screen (v1.6.0): the user left fullscreen themselves on this page (do not re-enter on the next tap),
+  // and when fullscreen last ended (an Escape that ended it must not also close the reader)
+  let fullscreenUserExited = false;
+  let lastFullscreenExit = 0;
   // Page title to restore when the reader closes, and the title the reader set
   let originalTitle = document.title;
   let readerTitle = null;
@@ -773,6 +777,12 @@
   async function deactivateReaderMode() {
     if (!isReaderActive) return;
 
+    // Leave fullscreen with the reader (the host is the fullscreen element, not the page)
+    if (readerOverlay && document.fullscreenElement === readerOverlay) {
+      document.exitFullscreen().catch(() => {});
+    }
+    fullscreenUserExited = false;
+
     if (readerOverlay) {
       readerOverlay.style.display = 'none';
     }
@@ -1165,7 +1175,8 @@
         const name = attr.name.toLowerCase();
 
         // Remove every inline event handler (onclick, onpointerdown, ontoggle, ...)
-        if (name.startsWith('on') || name === 'srcdoc') {
+        // ... and the notes annotateClone() left for restoreDropped()
+        if (name.startsWith('on') || name === 'srcdoc' || name.startsWith('data-inkpages-')) {
           el.removeAttribute(attr.name);
           continue;
         }
@@ -1372,15 +1383,230 @@
     });
   }
 
+  // Notes left on the copy of the page for restoreDropped(); sanitizeHTML() removes them
+  const NOTE_ID = 'data-inkpages-n';          // number of a text block (p, heading, li, ...)
+  const NOTE_HIDDEN = 'data-inkpages-hidden'; // the page does not show this block
+  const NOTE_BOLD = 'data-inkpages-bold';     // the page shows this text bold through CSS
+  const ADDED_BOLD = 'data-inkpages-b';       // a <b> added because of NOTE_BOLD
+  const BLOCK_ELEMENTS = 'p,div,ul,ol,li,dl,table,h1,h2,h3,h4,h5,h6,blockquote,pre,figure,section,article,header,footer,nav,aside,form,hr';
+  // Bold here is the element's own doing (headings, <b>) or says nothing about the text (links, buttons)
+  const NO_BOLD_NOTE = 'h1,h2,h3,h4,h5,h6,b,strong,th,dt,a,button,label,summary,nav,footer,figcaption,caption,pre,code,select,textarea,script,style,noscript,svg';
+
+  /**
+   * Readability only sees markup, not what the page looks like. Before the copy is changed,
+   * pair it with the live page (same order of elements) and note on the copy:
+   * - a number on every text block, so restoreDropped() can tell which ones Readability kept
+   * - blocks the page does not show (never restored: hidden text may be behind a paywall)
+   * - text that is bold only through CSS. Readability strips class names, so a semi-bold
+   *   standfirst or lead-in came out as plain text; noted here, wrapBoldNotes() makes it <b>
+   * Only attributes are added: copyShadowCodeBlocks() pairs the same elements afterwards.
+   */
+  function annotateClone(clone) {
+    if (!document.body || !clone.body) return;
+    const originals = Array.from(document.body.querySelectorAll('*'));
+    const copies = Array.from(clone.body.querySelectorAll('*'));
+    if (originals.length !== copies.length) return;
+
+    const copyOf = new Map();
+    originals.forEach((el, i) => copyOf.set(el, copies[i]));
+    const weight = (el) => parseInt(getComputedStyle(el).fontWeight, 10) || 400;
+    const phrasingOnly = (el) => el.querySelector(BLOCK_ELEMENTS) === null;
+
+    originals.forEach((el, i) => {
+      const copy = copies[i];
+      if (copy.tagName !== el.tagName) return;
+      if (/^(P|H[2-6]|LI|PRE|FIGURE|TABLE|BLOCKQUOTE)$/.test(el.tagName)) {
+        copy.setAttribute(NOTE_ID, i);
+        if (!el.getClientRects().length) copy.setAttribute(NOTE_HIDDEN, '');
+      }
+
+      let hasText = false;
+      for (const node of el.childNodes) {
+        if (node.nodeType === Node.TEXT_NODE && node.nodeValue.trim()) { hasText = true; break; }
+      }
+      if (!hasText || el.closest(NO_BOLD_NOTE) || !phrasingOnly(el) || weight(el) < 600) return;
+      // Note the outermost element that is bold as a whole (a bold paragraph, not each span in it)
+      let target = el;
+      for (let p = el.parentElement; p && p !== document.body && !p.matches(NO_BOLD_NOTE) && phrasingOnly(p) && weight(p) >= 600; p = p.parentElement) {
+        target = p;
+      }
+      const targetCopy = copyOf.get(target);
+      if (targetCopy && targetCopy.tagName === target.tagName) targetCopy.setAttribute(NOTE_BOLD, '');
+    });
+  }
+
+  function wrapBoldNotes(clone) {
+    clone.querySelectorAll('[' + NOTE_BOLD + ']').forEach(el => {
+      const bold = clone.createElement('b');
+      bold.setAttribute(ADDED_BOLD, '');
+      bold.append(...el.childNodes);
+      el.append(bold);
+    });
+  }
+
+  // Containers Readability drops on purpose (its "unlikely candidates"), plus promo boxes
+  const RESTORE_UNLIKELY = /-ad-|ai2html|banner|breadcrumbs|combx|comment|community|cover-wrap|disqus|extra|footer|gdpr|header|legends|menu|related|remark|replies|rss|shoutbox|sidebar|skyscraper|social|sponsor|supplemental|ad-break|agegate|pagination|pager|popup|yom-remote|newsletter|promo|share/i;
+  const RESTORE_NEVER_INSIDE = 'nav,aside,footer,figure,figcaption,a,button,form,noscript,[hidden],[aria-hidden="true"]';
+  const LEDE_NAME = /standfirst|lede|\bdek\b|\bdeck\b|sub-?head|sub-?title|intro|summary|chapeau|excerpt|strapline|\blead\b/i;
+  const LEDE_NOT = /author|byline|\bbio\b|caption|credit|meta|date|\btags?\b|share|social|related|newsletter|promo|subscri|paywall|consent|cookie|comment|breadcrumb/i;
+
+  /**
+   * Put back article text that Readability dropped.
+   *
+   * BBC News builds an article from sibling blocks (text, subheadline, image, text, ...), each
+   * in its own wrappers. Readability picks one text block as the article and adds only the
+   * siblings that score high enough: the short opening block (the bold first paragraph) never
+   * does, and one article came out as 223 of its 1,086 words. The Guardian and DW keep the
+   * standfirst in the page header, outside the article body.
+   *
+   * `pristine` is the copy of the page as Readability received it. Restored are, in page order:
+   * 1. Paragraphs in the same <article>/<main> whose chain of tags and class names (itself
+   *    and 4 ancestors) equals that of a paragraph Readability kept: the same kind of block
+   *    as the article text. Without any class name in the chain there is nothing to compare
+   * 2. h2-h4 headings standing directly above kept or restored text
+   * 3. At most two standfirst paragraphs between the h1 and the first kept block: named as
+   *    one (class "standfirst", "lede", "intro", ...) or equal to the page's meta description
+   * Never: blocks the page does not show, link lists, navigation, figures, comment/related/
+   * promo containers. Also undoes the added bold when over 30% of the text got it (a page
+   * set entirely in semi-bold).
+   */
+  function restoreDropped(html, pristine, title, description) {
+    const out = new DOMParser().parseFromString(html, 'text/html');
+    const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+    const id = (el) => el.getAttribute(NOTE_ID);
+
+    const finish = () => {
+      const marks = out.body.querySelectorAll('b[' + ADDED_BOLD + ']');
+      let bolded = 0;
+      marks.forEach(b => { bolded += b.textContent.length; });
+      if (bolded / (out.body.textContent.length || 1) > 0.3) {
+        marks.forEach(b => b.replaceWith(...b.childNodes));
+      }
+      return { html: out.body.innerHTML, text: out.body.textContent };
+    };
+
+    const outOf = new Map();
+    out.body.querySelectorAll('[' + NOTE_ID + ']').forEach(el => outOf.set(id(el), el));
+    const all = Array.from(pristine.querySelectorAll('[' + NOTE_ID + ']'));
+    const keptParagraphs = all.filter(el => el.tagName === 'P' && outOf.has(id(el)));
+    if (keptParagraphs.length < 2) return finish();
+
+    let common = keptParagraphs[0].parentElement;
+    while (common && !keptParagraphs.every(p => common.contains(p))) common = common.parentElement;
+    if (!common) return finish();
+    const scope = common.closest('article') || common.closest('main, [role="main"]') || common;
+
+    const signature = (el) => {
+      const parts = [];
+      for (let n = el, depth = 0; n && n !== scope && depth < 5; n = n.parentElement, depth++) {
+        parts.push(n.tagName + '.' + Array.from(n.classList).sort().join('.'));
+      }
+      return parts.join('>');
+    };
+    const keptSignatures = new Set(keptParagraphs.map(signature).filter(s => /\.[\w-]/.test(s)));
+
+    const usable = (el, top, isLede) => {
+      if (el.hasAttribute(NOTE_HIDDEN)) return false;
+      const text = norm(el.textContent);
+      if (!text) return false;
+      let linked = 0;
+      el.querySelectorAll('a').forEach(a => { linked += norm(a.textContent).length; });
+      if (linked / text.length > (isLede ? 0.3 : 0.5)) return false;
+      for (let n = el; n && n !== top; n = n.parentElement) {
+        if (n.matches(RESTORE_NEVER_INSIDE)) return false;
+        // A standfirst lives in the page header, so "header" must not rule it out
+        if (!isLede && RESTORE_UNLIKELY.test(n.className + ' ' + n.id)) return false;
+      }
+      return true;
+    };
+
+    const restore = new Set();
+    all.forEach(el => {
+      if (el.tagName === 'P' && !outOf.has(id(el)) && scope.contains(el) &&
+          keptSignatures.has(signature(el)) && usable(el, scope)) {
+        restore.add(el);
+      }
+    });
+
+    all.forEach((el, i) => {
+      if (!/^H[2-4]$/.test(el.tagName) || outOf.has(id(el)) || !scope.contains(el)) return;
+      const next = all[i + 1];
+      if (!next || /^H[2-6]$/.test(next.tagName) || !(outOf.has(id(next)) || restore.has(next))) return;
+      if (norm(el.textContent).length <= 200 && usable(el, scope)) restore.add(el);
+    });
+
+    const firstKept = all.findIndex(el => outOf.has(id(el)));
+    const h1 = pristine.querySelector('h1');
+    if (h1 && firstKept > 0) {
+      const articleText = norm(out.body.textContent);
+      const desc = norm(description).toLowerCase();
+      let ledes = 0;
+      all.slice(0, firstKept).forEach(el => {
+        if (ledes >= 2 || !/^(P|H2|H3)$/.test(el.tagName) || restore.has(el)) return;
+        if (!(h1.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) || h1.contains(el)) return;
+        const text = norm(el.textContent);
+        if (text.length < 40 || text.length > 600 || text === norm(title)) return;
+        if (articleText.includes(text.slice(0, 60))) return;
+        let named = false;
+        let excluded = false;
+        for (let n = el, depth = 0; n && n !== pristine && depth < 4; n = n.parentElement, depth++) {
+          const names = [n.className, n.id, n.getAttribute('data-gu-name'), n.getAttribute('data-testid'),
+            n.getAttribute('data-component'), n.getAttribute('itemprop')].join(' ');
+          if (LEDE_NAME.test(names)) named = true;
+          if (LEDE_NOT.test(names)) excluded = true;
+        }
+        const lower = text.toLowerCase();
+        const described = desc.length >= 40 &&
+          (lower.startsWith(desc.slice(0, 60)) || desc.startsWith(lower.slice(0, 60)));
+        if ((described || (named && !excluded)) && usable(el, pristine, true)) {
+          restore.add(el);
+          ledes++;
+        }
+      });
+    }
+    if (!restore.size) return finish();
+
+    // Next to the nearest block that is in the article, outside any list, quote or figure it is in
+    const anchorOf = (el) => {
+      while (el.parentElement && el.parentElement !== out.body &&
+             !/^(DIV|SECTION|ARTICLE|MAIN)$/.test(el.parentElement.tagName)) {
+        el = el.parentElement;
+      }
+      return el;
+    };
+    all.forEach((el, i) => {
+      if (!restore.has(el)) return;
+      const copy = out.importNode(el, true);
+      [copy, ...copy.querySelectorAll('*')].forEach(n => {
+        n.removeAttribute('class');
+        n.removeAttribute('style');
+        n.removeAttribute('id');
+      });
+      for (let j = i - 1; j >= 0; j--) {
+        const before = outOf.get(id(all[j]));
+        if (before) { anchorOf(before).after(copy); outOf.set(id(el), copy); return; }
+      }
+      for (let j = i + 1; j < all.length; j++) {
+        const after = outOf.get(id(all[j]));
+        if (after) { anchorOf(after).before(copy); outOf.set(id(el), copy); return; }
+      }
+    });
+    return finish();
+  }
+
   /**
    * Extract article using Readability
    */
   function extractArticle() {
     const documentClone = document.cloneNode(true);
+    annotateClone(documentClone);
     copyShadowCodeBlocks(documentClone);
 
     // Pre-process to remove social embeds and cookie placeholders (Safari-like behavior)
     preprocessDOM(documentClone);
+    wrapBoldNotes(documentClone);
+    // Readability takes its copy apart; this one stays as the page was, for restoreDropped()
+    const pristine = documentClone.body ? documentClone.body.cloneNode(true) : null;
 
     const reader = new Readability(documentClone, {
       charThreshold: 500,
@@ -1389,6 +1615,14 @@
 
     const article = reader.parse();
     if (!article) return null;
+
+    if (pristine) {
+      const meta = document.querySelector('meta[property="og:description"], meta[name="description"]');
+      const restored = restoreDropped(article.content, pristine, article.title, meta ? meta.content : '');
+      article.content = restored.html;
+      article.textContent = restored.text;
+      article.length = restored.text.length;
+    }
 
     const wordCount = article.textContent.trim().split(/\s+/).length;
     const readingTime = Math.ceil(wordCount / 200);
@@ -1519,6 +1753,8 @@
       btnClose: shadowRoot.getElementById('btn-close'),
       btnSettings: shadowRoot.getElementById('btn-settings'),
       btnExport: shadowRoot.getElementById('btn-export'),
+      btnFullscreen: shadowRoot.getElementById('btn-fullscreen'),
+      toggleFullscreen: shadowRoot.getElementById('toggle-fullscreen'),
       settingsPanel: shadowRoot.getElementById('settings-panel'),
       settingsOverlay: shadowRoot.getElementById('settings-overlay'),
       btnCloseSettings: shadowRoot.getElementById('btn-close-settings'),
@@ -1578,6 +1814,7 @@
       linkMode: 'normal',  // 'normal' | 'plain' | 'hide'
       imageSize: 'small',  // 'small' | 'medium' | 'large' (share of the page height)
       exportFormat: 'html',  // 'html' | 'epub' | 'markdown'
+      fullscreen: false,  // enter fullscreen on the first tap after the reader opens
       floatingButtonEnabled: isLikelyAndroid,
       floatingButtonSize: 50
     };
@@ -1705,6 +1942,9 @@
         elements.safeAreaValue.textContent = `${settings.safeAreaManual}px`;
       }
 
+      if (elements.toggleFullscreen) elements.toggleFullscreen.checked = !!settings.fullscreen;
+      updateFullscreenUI();
+
       if (elements.toggleFloatingButton) {
         elements.toggleFloatingButton.checked = settings.floatingButtonEnabled;
       }
@@ -1715,6 +1955,30 @@
       if (elements.floatingButtonSizeValue) {
         elements.floatingButtonSizeValue.textContent = `${settings.floatingButtonSize}px`;
       }
+    }
+
+    // Full screen (v1.6.0). The host element is the fullscreen element; fullscreen needs a user gesture
+    // and ends on every page load, so the setting only arms the first tap in the reader.
+    function enterFullscreen() {
+      if (!readerOverlay || document.fullscreenElement || !document.fullscreenEnabled) return;
+      try {
+        const p = readerOverlay.requestFullscreen();
+        if (p && p.catch) p.catch(() => {});
+      } catch (e) { /* not allowed here */ }
+    }
+
+    function exitFullscreen() {
+      if (document.fullscreenElement !== readerOverlay) return;
+      document.exitFullscreen().catch(() => {});
+    }
+
+    function updateFullscreenUI() {
+      const on = document.fullscreenElement === readerOverlay;
+      if (!elements.btnFullscreen) return;
+      elements.btnFullscreen.setAttribute('aria-pressed', on ? 'true' : 'false');
+      const label = on ? 'Exit full screen' : 'Full screen';
+      elements.btnFullscreen.title = label;
+      elements.btnFullscreen.setAttribute('aria-label', label);
     }
 
     /**
@@ -1969,6 +2233,27 @@
       // Keyboard
       document.addEventListener('keydown', handleKeydown);
 
+      // Full screen: first tap or key press in the reader enters it (when the setting is on and the user has not left it on this page)
+      function armedForFullscreen(e) {
+        if (!settings.fullscreen || !isReaderActive || fullscreenUserExited || document.fullscreenElement) return false;
+        if (e.type === 'keydown') return e.key !== 'Escape';
+        // The buttons that open/close/toggle fullscreen do their own thing
+        const path = e.composedPath ? e.composedPath() : [];
+        const own = [elements.btnFullscreen, elements.btnClose, elements.btnCloseReader,
+          elements.toggleFullscreen && elements.toggleFullscreen.closest('label')];
+        return !own.some(el => el && path.includes(el));
+      }
+      const firstGesture = (e) => { if (armedForFullscreen(e)) enterFullscreen(); };
+      ['pointerup', 'click', 'touchend'].forEach(type => shadowRoot.addEventListener(type, firstGesture, true));
+      document.addEventListener('keydown', firstGesture, true);
+
+      if (elements.btnFullscreen) {
+        elements.btnFullscreen.addEventListener('click', () => {
+          if (document.fullscreenElement === readerOverlay) exitFullscreen();
+          else enterFullscreen();
+        });
+      }
+
       // Close buttons
       if (elements.btnClose) {
         elements.btnClose.addEventListener('click', () => deactivateReaderMode());
@@ -2142,6 +2427,20 @@
         });
       });
 
+      // Full screen switch: the click is a user gesture, so turning it on enters right away
+      if (elements.toggleFullscreen) {
+        elements.toggleFullscreen.addEventListener('change', (e) => {
+          settings.fullscreen = e.target.checked;
+          if (settings.fullscreen) {
+            fullscreenUserExited = false;
+            enterFullscreen();
+          } else {
+            exitFullscreen();
+          }
+          saveSettings();
+        });
+      }
+
       if (elements.toggleFloatingButton) {
         elements.toggleFloatingButton.addEventListener('change', (e) => {
           settings.floatingButtonEnabled = e.target.checked;
@@ -2166,6 +2465,22 @@
       window.addEventListener('resize', () => {
         clearTimeout(resizeTimeout);
         resizeTimeout = setTimeout(repaginate, 150);
+      });
+
+      // Entering/leaving fullscreen resizes the page; repaginate (same position) once the size has settled.
+      // Shares the resize timer, so a resize event arriving later pushes it back.
+      let wasFullscreen = false;
+      document.addEventListener('fullscreenchange', () => {
+        const isFs = document.fullscreenElement === readerOverlay;
+        if (wasFullscreen && !isFs) {
+          lastFullscreenExit = Date.now();
+          // Left it ourselves via Settings or by closing the reader: not "the user left"; the latter has isReaderActive false
+          if (isReaderActive) fullscreenUserExited = true;
+        }
+        wasFullscreen = isFs;
+        updateFullscreenUI();
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => { if (isReaderActive) repaginate(); }, 250);
       });
     }
 
@@ -2230,6 +2545,8 @@
           goToPage(totalPages - 1);
           break;
         case 'Escape':
+          // The same Escape that ended fullscreen must not also close the reader
+          if (document.fullscreenElement || Date.now() - lastFullscreenExit < 400) break;
           deactivateReaderMode();
           break;
         case 's':

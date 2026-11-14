@@ -15,7 +15,7 @@ InkPages transforms web content into a clean, paginated reading experience - lik
 - **True pagination** - tap, swipe, or use arrow keys to turn pages
 - **No scrolling** - perfect for e-ink devices (Kindle Scribe, Boox, reMarkable)
 - **Smart detection** - automatically chooses article or TOC mode
-- **Multiple themes** - Light, Dark, Sepia, and high-contrast E-ink
+- **Multiple themes** - Light, Dark, true Black, Sepia, and high-contrast E-ink
 - **Customizable typography** - font, size, line spacing, page width
 - **E-ink optimizations** - bold text, justify, grayscale, hide images (captions stay as a short note, photo credits go)
 - **Text first** - images are kept to a third of the page by default (Small / Medium / Large), so a lead photo no longer pushes the text to page 2
@@ -104,6 +104,12 @@ What goes into the e-book:
 | Export | None | HTML, EPUB e-book or Markdown |
 
 ## Changelog
+
+### v1.6.0
+- New true Black theme (Settings → Theme): pure black background with slightly dimmed text, for OLED screens (issue #7)
+- Full screen: a new button in the top bar hides the browser bars while you read, and tapping it again brings them back. Settings → Behavior has a "Full screen" switch that starts full screen on your first tap in the reader. Browsers only allow full screen after a tap and end it whenever a page loads, so it starts on a tap rather than by itself; if you leave full screen yourself, InkPages does not re-enter it on the next tap. Closing the reader leaves full screen too
+- Fixed articles that opened with their first paragraphs, or whole sections, missing: on some news sites the article is built from many separate blocks and only part of them was picked up. Missing paragraphs, their subheadings and the standfirst are now put back in place (issue #7)
+- Text a site shows in bold through its styling (a semi-bold standfirst or lead-in) is now bold in the reader and in exports (issue #7)
 
 ### v1.5.0
 - Export as Markdown (.md): choose Markdown under Settings → Export Format. You get the whole article as one plain-text file with headings, lists, links and tables, ready to paste into your notes or edit (issue #6)

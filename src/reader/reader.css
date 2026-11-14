@@ -61,6 +61,17 @@
   --selection-bg: #3a4a5c;
 }
 
+/* True black theme (OLED: pixels fully off) */
+[data-theme="black"], :host([data-theme="black"]) {
+  --bg-color: #000000;
+  --text-color: #e0e0e0;
+  --text-secondary: #8e8e93;
+  --header-bg: #000000;
+  --header-border: #2a2a2a;
+  --link-color: #64b5f6;
+  --selection-bg: #3a4a5c;
+}
+
 /* E-ink high contrast theme */
 [data-theme="eink"], :host([data-theme="eink"]) {
   --bg-color: #ffffff;
@@ -240,6 +251,12 @@ body.justify-text #article-content,
   align-items: center;
   justify-content: center;
   /* E-ink: No hover transitions */
+}
+
+/* Full screen button: show the "exit" icon while fullscreen is on */
+#btn-fullscreen[aria-pressed="true"] .fs-enter,
+#btn-fullscreen:not([aria-pressed="true"]) .fs-exit {
+  display: none;
 }
 
 .header-btn:hover {
@@ -638,7 +655,9 @@ body.justify-text #article-content,
 }
 
 [data-theme="dark"] #settings-overlay,
-:host([data-theme="dark"]) #settings-overlay {
+:host([data-theme="dark"]) #settings-overlay,
+[data-theme="black"] #settings-overlay,
+:host([data-theme="black"]) #settings-overlay {
   background: rgba(0, 0, 0, 0.6);
 }
 
@@ -801,10 +820,12 @@ body.justify-text #article-content,
 /* Theme buttons */
 .theme-options {
   display: flex;
-  gap: 12px;
+  gap: 8px;
 }
 
 .theme-btn {
+  flex: 0 1 48px;
+  min-width: 0;
   width: 48px;
   height: 48px;
   border: 2px solid transparent;
@@ -836,6 +857,11 @@ body.justify-text #article-content,
 
 .theme-dark {
   background: #1c1c1e;
+}
+
+.theme-black {
+  background: #000000;
+  border-color: #6e6e73;
 }
 
 .theme-eink {

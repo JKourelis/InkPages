@@ -24,6 +24,12 @@
     </div>
 
     <div class="header-right">
+      <button id="btn-fullscreen" class="header-btn" title="Full screen" aria-label="Full screen" aria-pressed="false">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <g class="fs-enter"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></g>
+          <g class="fs-exit"><path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3"/></g>
+        </svg>
+      </button>
       <button id="btn-export" class="header-btn" title="Export Article">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -147,6 +153,9 @@
           <button class="theme-btn" data-theme="dark" title="Dark">
             <span class="theme-preview theme-dark"></span>
           </button>
+          <button class="theme-btn" data-theme="black" title="Black">
+            <span class="theme-preview theme-black"></span>
+          </button>
           <button class="theme-btn" data-theme="eink" title="E-ink">
             <span class="theme-preview theme-eink"></span>
           </button>
@@ -219,6 +228,13 @@
           </label>
         </div>
         <p class="setting-hint">The homepage and section pages open as a list of links. Opening InkPages yourself works either way</p>
+        <div class="setting-toggles" style="margin-top:10px;">
+          <label class="toggle-label">
+            <input type="checkbox" id="toggle-fullscreen" class="toggle-input">
+            <span class="toggle-text">Full screen</span>
+          </label>
+        </div>
+        <p class="setting-hint">Hides the browser bars. Starts on your first tap</p>
       </div>
 
       <!-- Floating Button -->

@@ -48,6 +48,8 @@ InkPages is a Firefox extension that provides Safari-like reader mode with pagin
 9. **Cookie/Embed Filtering**: Removes social media embed placeholders and cookie consent blocks
 10. **Link Modes**: Links shown normally, as plain text, or link-heavy blocks hidden
 11. **Floating Button**: Optional draggable button to open the reader (default on Android)
+12. **Themes**: Light, Sepia, Dark, Black (v1.6.0: `#000` background and header, text `#e0e0e0`, borders `#2a2a2a`, for OLED), E-ink. CSS variable blocks keyed on `data-theme` in `reader.css`; the JS is generic over `btn.dataset.theme`. The settings overlay is darkened for dark and black. Five theme buttons shrink (`flex: 0 1 48px`) to fit a 320px phone
+13. **Full Screen (v1.6.0, issue #7)**: top-bar button plus Settings → Behavior switch; see "Full Screen" section
 
 ## Technical Details
 
@@ -77,6 +79,25 @@ content.style.columnGap = columnGap + 'px';
 - Collapsed sections (v1.5.0): Wikipedia's mobile layout (phone-width windows, also with a desktop UA) folds every section with `hidden="until-found"`, and Readability skips hidden elements, so on a phone the reader showed only the introduction (Markdown article: 1,238 chars instead of 19,633). preprocessDOM removes `hidden` where it is `until-found` (content find-in-page can open); other `hidden` stays hidden
 - Logo links (v1.5.0): a link to a home page (path `/`, no query) holding only img/svg/picture and no text is removed. volkskrant.nl "kijkverder" longreads have the site logo in a `<nav>` inside `<article>`; Readability kept it (no link text, so no link density) and the reader opened with a full-width logo
 - Volkskrant "kijkverder" longreads (Nuxt, `/kijkverder/...`) when not logged in render the intro and first paragraph, then the paywall; the whole article is in `window.__NUXT__` (`content_blocks`). InkPages reads only what the page shows and must not take hidden text from that state (paywall). Their lead photo sits in a `header`-class block (Readability drops it) as a lazy `data-src` image, so the reader has no lead photo there
+
+### Dropped Text and CSS Bold (v1.6.0, issue #7)
+
+Reported as "the lede/standfirst isn't included and the semi-bold lettering not replicated". Both come from Readability seeing only markup; `extractArticle()` now runs `annotateClone()` -> `copyShadowCodeBlocks()` -> `preprocessDOM()` -> `wrapBoldNotes()` -> Readability -> `restoreDropped()`.
+- Cause 1: BBC News builds an article from sibling blocks (`div[data-block=text|subheadline|image]`, each in three wrapper divs). Readability picks one text block and appends only siblings that score high enough; the short opening block (bold first paragraph) never does. Measured in headless Firefox on saved pages: 507 of 761 words, and 222 of 1,085 on another article, no subheadings. MDN lost its introduction the same way (643 -> 703 words)
+- Cause 2: DW and Al Jazeera keep the standfirst in the page header, outside the article body
+- Cause 3: Readability strips class names, so CSS-only bold is lost (Wired: `span.lead-in-text`, bold `<p>` subheads)
+- `annotateClone()` pairs the live page with the copy by element index (like `copyShadowCodeBlocks()`, and before it: it adds attributes only, never elements, or that pairing would break). It numbers p/h2-h6/li/pre/figure/table/blockquote (`data-inkpages-n`), marks blocks without client rects (`data-inkpages-hidden`) and marks the outermost phrasing-only element with computed `font-weight` >= 600 (`data-inkpages-bold`; not inside headings, b/strong, links, buttons, th, figcaption, nav, footer). `wrapBoldNotes()` turns the marks into `<b data-inkpages-b>` after preprocessDOM. Real `<b>`, so exports get it too
+- `restoreDropped(html, pristine, title, description)`: `pristine` is a copy of the body as Readability received it. The numbers tell which blocks were kept. Restored in page order, placed next to the nearest kept block (outside any list/quote/figure it is in), class/style/id removed:
+  1. paragraphs in the same `<article>` (else `main`, else the common ancestor of the kept paragraphs) whose tag+class chain (itself + 4 ancestors) equals that of a kept paragraph. A chain without any class name is not used
+  2. h2-h4 directly above kept or restored text
+  3. at most two standfirst paragraphs between the h1 and the first kept block: 40-600 chars, and either named (`LEDE_NAME`: standfirst, lede, dek, intro, summary, ...; not `LEDE_NOT`: author, byline, caption, ...) on itself or 3 ancestors, or starting like the meta description
+- Never restored: hidden blocks (paywall rule: only what the page shows), link density over 50% (30% for a standfirst), anything in nav/aside/footer/figure/a/form/noscript, containers matching Readability's unlikely-candidates words plus newsletter/promo/share (`RESTORE_UNLIKELY`; not applied to standfirsts, which live in "header" blocks)
+- If the added bold covers over 30% of the article text it is all undone (page set in semi-bold)
+- `sanitizeHTML()` removes every `data-inkpages-*` attribute
+- Wikipedia: Readability drops some section headings (`div.mw-heading`); rule 2 brings them back (3 -> 9 headings on one article)
+- The Verge "stream" pages: rule 1 adds the text of stream entries Readability skipped (2,363 -> 2,805 words). Same kind of content as what it kept, left as is
+- Verified in headless Firefox, old vs new build, on 14 saved pages (scripts stripped, `<base href>` to the original so CSS loads): BBC x2, Wired, DW, Verge, Wikipedia, MDN, Ars Technica, NPR, Al Jazeera, NOS, TechCrunch, Nature, The Conversation. Unchanged where nothing was missing. Cost ~5ms annotate + ~15ms restore on a 1,500-element page (Chromium figures)
+- Not verified: The Guardian (blocks scripted downloads; its `data-gu-name="standfirst"` is covered by rule 3 on paper only), The Atlantic (same), volkskrant.nl, pages with scripts running (the saved copies had none)
 
 ### Web Components (v1.5.0)
 - Shadow-DOM code (`copyShadowCodeBlocks()`, called in `extractArticle()` before `preprocessDOM`): developer.mozilla.org renders every code example inside `<mdn-code-example>` with the `<pre>` only in its shadow root (light DOM empty, 0 `<pre>` in the page). `document.cloneNode()` copies no shadow roots, so Readability never saw the code and the reader showed headings with nothing under them. Elements of the page and the clone are paired by index (`querySelectorAll('*')`, same length and tag checked); a host whose shadow root (also nested ones; `openOrClosedShadowRoot` sees closed roots in Firefox) holds `<pre>` and whose light DOM has none is replaced in the clone by those `<pre>` plus its own children. Only `<pre>`: the rest of a shadow root is mostly controls (copy/run buttons, menus). Other shadow-only content is still not extracted
@@ -429,6 +450,20 @@ Third Export Format option (`settings.exportFormat: 'markdown'`, file `.md`, typ
 
 Verified in headless Firefox: before the fix, page 4/25 came back as 1/25 after a reload.
 
+### Full Screen (v1.6.0, issue #7)
+
+Why: the reader sets `body.overflow = hidden`, so on Firefox Android the browser toolbar/tab bar can never be scrolled away. The Fullscreen API hides them.
+- `requestFullscreen()` is called on the shadow **host** (`readerOverlay`, the element appended to the page), not on something inside the shadow root. Rejections are ignored. `fullscreenElement` is checked against `readerOverlay`
+- Top-bar button `#btn-fullscreen` toggles it at any time, regardless of the setting; `aria-pressed`, title ("Full screen" / "Exit full screen") and icon follow `fullscreenchange` (`updateFullscreenUI()`)
+- `settings.fullscreen` (default false, `#toggle-fullscreen` in Settings → Behavior, synced) only *arms* it. Fullscreen needs a user gesture and ends on every page load, so with the setting on the first `pointerup`/`click`/`touchend` (listener on the closed shadow root, capture, so it runs before the tap zones' `stopPropagation`) or `keydown` (not Escape) while the reader is open and not fullscreen enters it. Taps on the fullscreen button, the close button and the fullscreen switch are excluded (otherwise they would enter and straight away leave again). Turning the switch on enters at once (the click is the gesture); off exits
+- If the user leaves fullscreen themselves (Escape/system gesture, or our button) while the reader is open, `fullscreenUserExited` (module-level, per page) stops re-entering on the next tap; the button still works. The flag resets when the reader closes or the switch is turned on
+- Every close path ends in `deactivateReaderMode()`, which calls `document.exitFullscreen()` when our host is the fullscreen element (SPA back/forward close included)
+- `fullscreenchange` re-runs `repaginate()` (same page fraction, header spacer remeasured) on the shared resize debounce (250ms, pushed back by later resize events); skipped if the reader is closed (it is hidden then, and would measure 0px)
+- Escape: Firefox handles it at browser level and (observed in headless Firefox with a WebDriver Escape) does not deliver the keydown to the page, so the reader stays open. `handleKeydown` also ignores Escape while `document.fullscreenElement` is set or within 400ms of fullscreen ending, in case a browser does deliver it
+- Host styling: the UA `:fullscreen` rule forces `position: fixed; inset: 0; width/height: 100%`, same as our inline style; the reader's own theme background covers the `::backdrop`. No extra CSS was needed (checked with sepia: all four corners sepia, no black bars)
+- The floating "Ink" button is a separate element and is not in the top layer, so it is hidden in fullscreen; the reader's own close button works
+- Not testable on desktop: whether Android's toolbar actually hides and does not return on scroll/tap
+
 ### Link Modes (v1.1.0, issue #2)
 
 Setting `linkMode`: `'normal'` | `'plain'` | `'hide'`, applied as `.links-plain` / `.links-hide` classes on the shadow host.
@@ -602,11 +637,14 @@ cp InkPages_vX.Y.Z.zip ~/OneDrive/
 ## Important Code Locations
 
 - **Floating Button**: `content.js` line ~234 (`ensureFloatingButton` function)
+- **Full screen**: `content.js` `enterFullscreen()` / `exitFullscreen()` / `updateFullscreenUI()` (before `updateHeaderSpacer`), first-tap listeners and `fullscreenchange` handler in `setupEventListeners()`, `fullscreenUserExited` at the top of the file, exit in `deactivateReaderMode()`, Escape guard in `handleKeydown`; markup `#btn-fullscreen`, `#toggle-fullscreen` in `reader.html`
+- **Black theme**: `reader.css` `[data-theme="black"]` block (after dark), `.theme-black` swatch, `#settings-overlay` rule
 - **Auto-open choices**: `content.js` `AUTO_OPEN_KEYS`, `getAutoOpenState()`, `setAutoOpen()` (before `toggleReaderMode`), `askAutoOpenOnce(kind)` / `hideAutoOpenPrompt()` (after `activateReaderMode`); question markup `#auto-open-prompt` in `reader.html`, styles in `reader.css` ("Auto-open Question"); Settings switches `#toggle-site-auto` / `#toggle-site-toc` (site name in `.setting-site`, not `.site-name`, which is the top bar label); one-time migration `migrateAutoOpen()` in `background.js`
 - **Settings button**: `reader.html` `#btn-settings`, a vertical three-dot (⋮) icon since v1.3.0 (issue #4: the old sun-like icon read as a brightness/theme control)
 - **Auto-Activation / SPA navigation watcher**: `content.js` line ~365 (`checkAutoActivation`), ~501 (`watchForNavigation`)
 - **Article Detection**: `content.js` line ~511 (`isArticlePage` function; caches the parse in `detectedArticle`)
 - **Sanitization**: `content.js` line ~1130 (`sanitizeHTML` function, URL scheme allowlist)
+- **Dropped text / CSS bold (v1.6.0)**: `content.js` `annotateClone`, `wrapBoldNotes`, `restoreDropped` (just before `extractArticle`)
 - **Cookie/Embed Filtering**: `content.js` line ~1188 (`preprocessDOM` function)
 - **Repaginate keeping position**: `content.js` line ~1527 (`repaginate` function)
 - **Pagination Setup**: `content.js` line ~1633 (`setupPagination` function; sets `--page-height` for image sizing)
