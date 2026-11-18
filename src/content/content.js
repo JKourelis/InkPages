@@ -50,6 +50,10 @@
   let floatingButtonElement = null;
   let floatingButtonInner = null;
 
+  function toArray(list) {
+    return list ? Array.prototype.slice.call(list) : [];
+  }
+
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
   }
@@ -380,6 +384,8 @@
     const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
     try {
+      if (isSecurityInterstitial()) return;
+
       const origin = window.location.origin;
 
       // Articles and link pages (homepage, sections) are separate choices per site
@@ -408,10 +414,10 @@
       // but render their text late (hydration, paywall checks) get a few more tries.
       if (superseded()) return;
       let isArticle = await isArticlePage();
-      const retryDelays = isDeclaredArticle() ? [1000, 2000] : [];
-      for (const delay of retryDelays) {
+      const retryDelays = (isDeclaredArticle() || isLikelyArticleUrl()) ? [1000, 2000] : [];
+      for (let i = 0; i < retryDelays.length; i++) {
         if (isArticle || isReaderActive || superseded()) break;
-        await wait(delay);
+        await wait(retryDelays[i]);
         if (superseded()) return;
         isArticle = await isArticlePage();
       }
@@ -420,11 +426,11 @@
       if (isReaderActive || superseded()) return;
 
       // The TOC used to open on every non-article page of a remembered site (Reddit's home
-      // screen, issue #3); it now needs its own Yes. A page that declares itself an article
-      // never opens as a TOC unless it is clearly a multi-card link feed.
+      // screen, issue #3); it now needs its own Yes. A page that looks or declares itself as an
+      // article never opens as a TOC unless it is clearly a multi-card link feed or /toc/ page.
       if (isArticle) {
         if (openArticles) activateReaderMode();
-      } else if (openLinkPages && (!isDeclaredArticle() || isMultiCardFeed())) {
+      } else if (openLinkPages && (isLikelyTocUrl() || isMultiCardFeed() || !(isDeclaredArticle() || isLikelyArticleUrl()))) {
         activateListingMode();
       }
     } catch (e) {
@@ -445,9 +451,11 @@
     try {
       const url = new URL(href);
       url.hash = '';
-      for (const param of Array.from(url.searchParams.keys())) {
-        if (param.startsWith('utm_')) url.searchParams.delete(param);
-      }
+      const toDelete = [];
+      url.searchParams.forEach((_, param) => {
+        if (param.startsWith('utm_')) toDelete.push(param);
+      });
+      toDelete.forEach(param => url.searchParams.delete(param));
       return url.href;
     } catch {
       return href;
@@ -463,8 +471,8 @@
     const ogUrl = document.querySelector('meta[property="og:url"]');
     // Some sites have only a logo h1 and no canonical link; the text itself still differs
     const isLong = p => p.textContent.length > 100;
-    const paragraph = Array.from(document.querySelectorAll('article p, main p')).find(isLong) ||
-      Array.from(document.querySelectorAll('p')).find(isLong);
+    const paragraph = toArray(document.querySelectorAll('article p, main p')).find(isLong) ||
+      toArray(document.querySelectorAll('p')).find(isLong);
     return [
       h1 ? h1.textContent.trim().slice(0, 200) : '',
       canonical ? canonical.getAttribute('href') : '',
@@ -513,24 +521,42 @@
     setInterval(onPossibleNavigation, 500);
   }
 
+  function isSecurityInterstitial() {
+    const title = (document.title || '').trim();
+    const visibleText = (document.body ? (document.body.innerText || document.body.textContent || '') : '').trim();
+    if (visibleText.length >= 600) return false;
+    return /^(?:just a moment|attention required|verify you are human|performing security verification)\b/i.test(title) ||
+      Boolean(document.querySelector('#challenge-running, #challenge-stage, #cf-wrapper'));
+  }
+
+  function isLikelyTocUrl() {
+    const path = window.location.pathname || '';
+    return path === '/' || path === '' || /\/toc\//i.test(path);
+  }
+
+  function isLikelyArticleUrl() {
+    const path = window.location.pathname || '';
+    return !isLikelyTocUrl() && /\/(doi|articles?|content\/article|story|stories|artikel|wiki)\//i.test(path);
+  }
+
   function isMultiCardFeed() {
     const mainEl = document.querySelector('main, [role="main"]');
     const root = mainEl || document;
     const EXCLUDE_CARD_ANCESTORS = 'aside, nav, footer, [role="complementary"], [role="navigation"]';
-    const cards = Array.from(root.querySelectorAll('article'))
+    const cards = toArray(root.querySelectorAll('article'))
       .filter(a => !a.closest(EXCLUDE_CARD_ANCESTORS));
     if (cards.length < 6) return false;
     const hasSubstantialCard = cards.some(card => {
       let cardProse = 0;
-      for (const p of card.querySelectorAll('p, [role="paragraph"]')) {
+      toArray(card.querySelectorAll('p, [role="paragraph"]')).forEach(p => {
         if (!p.closest(EXCLUDE_CARD_ANCESTORS)) {
           cardProse += p.textContent.trim().length;
         }
-      }
+      });
       return cardProse >= 500;
     });
     if (hasSubstantialCard) return false;
-    const ps = Array.from(root.querySelectorAll('p, [role="paragraph"]'))
+    const ps = toArray(root.querySelectorAll('p, [role="paragraph"]'))
       .filter(p => !p.closest(EXCLUDE_CARD_ANCESTORS));
     return !ps.some(p => p.textContent.trim().length > 240);
   }
@@ -542,13 +568,8 @@
   async function isArticlePage() {
     // Quick checks first
 
-    // 1. Check URL patterns and multi-card teaser grids that indicate non-article pages
-    const path = window.location.pathname;
-    if (path === '/' || path === '') {
-      // Homepage
-      return false;
-    }
-    if (isMultiCardFeed()) {
+    // 1. Check challenge interstitials, URL patterns, and multi-card teaser grids
+    if (isSecurityInterstitial() || isLikelyTocUrl() || isMultiCardFeed()) {
       return false;
     }
 
@@ -565,7 +586,7 @@
     let substantialParagraphs = 0;
     let totalTextLength = 0;
 
-    paragraphs.forEach(p => {
+    toArray(paragraphs).forEach(p => {
       const text = p.textContent.trim();
       if (text.length > 100) {
         substantialParagraphs++;
@@ -584,16 +605,17 @@
     // - Not have a listing structure with many items
     // - Preferably have article-like elements
 
-    // Pages that declare themselves an article (og:type, article:published_time, JSON-LD, scholarly citation meta)
-    // can be short, e.g. reviews, abstracts, and news briefs, so they get lower thresholds
+    // Pages that declare themselves an article (or use an article URL pattern)
+    // can be short (accepted previews, abstracts, news briefs), so they get lower thresholds
     const declaredArticle = isDeclaredArticle();
+    const explicitArticle = declaredArticle || isLikelyArticleUrl();
 
-    const hasSubstantialContent = declaredArticle
-      ? totalTextLength > 500 && substantialParagraphs >= 2
+    const hasSubstantialContent = explicitArticle
+      ? totalTextLength > 300 && substantialParagraphs >= 1
       : totalTextLength > 2000 && substantialParagraphs > 3;
     const hasArticleStructure = (article || mainContent) && hasSingleMainHeading;
-    const isNotListingPage = declaredArticle || !hasListingStructure || substantialParagraphs > 5;
-    const minWords = declaredArticle ? 80 : 200;
+    const isNotListingPage = explicitArticle || !hasListingStructure || substantialParagraphs > 5;
+    const minWords = explicitArticle ? 50 : 200;
 
     // Final check: try to extract with Readability and see if we get good content
     detectedArticle = null;
@@ -616,14 +638,17 @@
   const SCHOLARLY_SCHEMA_TYPES = /ScholarlyArticle/i;
 
   function isScholarlyPage(doc = document) {
-    if (doc.querySelector('meta[name="citation_title"], meta[name="citation_doi"], meta[name="citation_pmid"], meta[name="dc.Identifier"], meta[name="DC.Identifier"]')) {
+    const metaSel = 'meta[name="citation_title"], meta[name="citation_doi"], meta[name="citation_pmid"], meta[name="dc.Identifier"], meta[name="DC.Identifier"]';
+    if (toArray(doc.querySelectorAll(metaSel)).some(m => (m.getAttribute('content') || '').trim().length > 0)) {
       return true;
     }
-    for (const script of doc.querySelectorAll('script[type="application/ld+json"]')) {
+    const scripts = toArray(doc.querySelectorAll('script[type="application/ld+json"]'));
+    for (let i = 0; i < scripts.length; i++) {
       try {
-        const data = JSON.parse(script.textContent);
+        const data = JSON.parse(scripts[i].textContent);
         const nodes = Array.isArray(data) ? data : (data['@graph'] || [data]);
-        for (const node of nodes) {
+        for (let j = 0; j < nodes.length; j++) {
+          const node = nodes[j];
           const types = [].concat(node && node['@type'] || []);
           if (types.some(type => SCHOLARLY_SCHEMA_TYPES.test(type))) return true;
         }
@@ -642,14 +667,18 @@
   function isDeclaredArticle() {
     if (isScholarlyPage(document)) return true;
     const ogType = document.querySelector('meta[property="og:type"]');
-    if (ogType && ogType.getAttribute('content') === 'article') return true;
+    const ogVal = ogType ? (ogType.getAttribute('content') || '').trim() : '';
+    if (/^(issue|website|section|homepage)$/i.test(ogVal)) return false;
+    if (/^(article|scholarlyarticle|newsarticle|blogposting)$/i.test(ogVal)) return true;
     if (document.querySelector('meta[property="article:published_time"]')) return true;
 
-    for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+    const scripts = toArray(document.querySelectorAll('script[type="application/ld+json"]'));
+    for (let i = 0; i < scripts.length; i++) {
       try {
-        const data = JSON.parse(script.textContent);
+        const data = JSON.parse(scripts[i].textContent);
         const nodes = Array.isArray(data) ? data : (data['@graph'] || [data]);
-        for (const node of nodes) {
+        for (let j = 0; j < nodes.length; j++) {
+          const node = nodes[j];
           const types = [].concat(node && node['@type'] || []);
           if (types.some(type => ARTICLE_SCHEMA_TYPES.test(type))) return true;
         }
@@ -713,16 +742,41 @@
     if (isReaderActive) {
       deactivateReaderMode();
     } else {
+      if (isSecurityInterstitial()) {
+        showNotification('Finish page security verification first');
+        return;
+      }
+
       // Detect whether this is an article or listing page
       const isArticle = await isArticlePage();
+      const preferArticle = isDeclaredArticle() || isLikelyArticleUrl();
+      const hasVisibleProse = getVisibleBodyProseStats().visibleLongCount >= 1;
 
-      if (isArticle) {
-        activateReaderMode();
+      if (isArticle || (preferArticle && hasVisibleProse && !isLikelyTocUrl() && !isMultiCardFeed())) {
+        await activateReaderMode();
+        if (!isReaderActive) {
+          await activateListingMode();
+        }
       } else {
         await activateListingMode();
         // No list of links found: try article mode anyway
-        if (!isReaderActive) activateReaderMode();
+        if (!isReaderActive) await activateReaderMode();
       }
+    }
+  }
+
+  async function switchListingToArticle() {
+    detectedArticle = null;
+    const prevArticle = articleData;
+    const prevListing = listingData;
+    isListingMode = false;
+    isReaderActive = false;
+    await activateReaderMode();
+    if (!isReaderActive) {
+      isListingMode = true;
+      isReaderActive = true;
+      articleData = prevArticle;
+      listingData = prevListing;
     }
   }
 
@@ -998,8 +1052,9 @@
       }
 
       // Priority 4: First prominent link (with substantial text)
-      const allLinks = container.querySelectorAll('a[href]');
-      for (const a of allLinks) {
+      const allLinks = toArray(container.querySelectorAll('a[href]'));
+      for (let i = 0; i < allLinks.length; i++) {
+        const a = allLinks[i];
         if (shouldSkip(a)) continue;
         const text = a.textContent.trim();
         if (text.length >= 20) {
@@ -1021,8 +1076,9 @@
       const sublinksContainer = container.querySelector('ul.sublinks, .sublinks, .related-links, .more-links');
       const searchIn = sublinksContainer || container;
 
-      const allLinks = searchIn.querySelectorAll('a[href]');
-      for (const a of allLinks) {
+      const allLinks = toArray(searchIn.querySelectorAll('a[href]'));
+      for (let i = 0; i < allLinks.length; i++) {
+        const a = allLinks[i];
         // Skip the main link itself
         if (a === mainLinkEl) continue;
         // Skip if contains the main link
@@ -1163,9 +1219,10 @@
     if (totalItems < 5) {
       // Simple fallback: just get all links with substantial text
       const fallbackItems = [];
-      const allLinks = mainContent.querySelectorAll('a[href]');
+      const allLinks = toArray(mainContent.querySelectorAll('a[href]'));
 
-      for (const a of allLinks) {
+      for (let i = 0; i < allLinks.length; i++) {
+        const a = allLinks[i];
         if (shouldSkip(a)) continue;
         const link = createLink(a.href, a.textContent);
         const added = addIfNew(link);
@@ -1200,45 +1257,45 @@
     const doc = new DOMParser().parseFromString(html, 'text/html');
 
     // Remove script and style elements (Readability should have done this, but double-check)
-    doc.body.querySelectorAll('script, style, noscript').forEach(el => el.remove());
+    toArray(doc.body.querySelectorAll('script, style, noscript')).forEach(el => el.remove());
 
     // Remove forms and form elements
-    doc.body.querySelectorAll('form, input, button, select, textarea').forEach(el => el.remove());
+    toArray(doc.body.querySelectorAll('form, input, button, select, textarea')).forEach(el => el.remove());
 
     // Remove iframes, objects, embeds
-    doc.body.querySelectorAll('iframe, object, embed, applet, frame, frameset').forEach(el => el.remove());
+    toArray(doc.body.querySelectorAll('iframe, object, embed, applet, frame, frameset')).forEach(el => el.remove());
 
     // Remove elements that can change navigation or rewrite attributes (SVG <set>/<animate> can set href)
-    doc.body.querySelectorAll('base, meta, link, set, animate').forEach(el => el.remove());
+    toArray(doc.body.querySelectorAll('base, meta, link, set, animate')).forEach(el => el.remove());
 
     // Unwrap the page's web components (MDN's <interactive-example>): the reader lives in the
     // page, so the page's scripts would bring them back to life inside it, as empty widgets
     // with their own buttons. Their children (server-rendered content) stay. <p is="..."> is a
     // component too; serializing keeps an element's "is" even without the attribute, so it
     // becomes a plain copy
-    doc.body.querySelectorAll('*').forEach(el => {
+    toArray(doc.body.querySelectorAll('*')).forEach(el => {
       if (el.namespaceURI !== 'http://www.w3.org/1999/xhtml') return;
       if (el.localName.includes('-')) {
-        el.replaceWith(...el.childNodes);
+        el.replaceWith(...toArray(el.childNodes));
       } else if (el.hasAttribute('is')) {
         const plain = doc.createElement(el.localName);
-        for (const attr of el.attributes) {
+        toArray(el.attributes).forEach(attr => {
           if (attr.name !== 'is') plain.setAttribute(attr.name, attr.value);
-        }
-        plain.append(...el.childNodes);
+        });
+        plain.append(...toArray(el.childNodes));
         el.replaceWith(plain);
       }
     });
 
-    doc.body.querySelectorAll('*').forEach(el => {
-      for (const attr of Array.from(el.attributes)) {
+    toArray(doc.body.querySelectorAll('*')).forEach(el => {
+      toArray(el.attributes).forEach(attr => {
         const name = attr.name.toLowerCase();
 
         // Remove every inline event handler (onclick, onpointerdown, ontoggle, ...)
         // ... and the notes annotateClone() left for restoreDropped()
         if (name.startsWith('on') || name === 'srcdoc' || name.startsWith('data-inkpages-')) {
           el.removeAttribute(attr.name);
-          continue;
+          return;
         }
 
         // Only allow safe URL schemes; data: only for media sources (base64 images)
@@ -1248,7 +1305,7 @@
             el.removeAttribute(attr.name);
           }
         }
-      }
+      });
     });
 
     return doc.body.innerHTML;
@@ -1299,8 +1356,67 @@
     return linked / t.length;
   }
 
+  function elAttrText(el) {
+    if (!el || !el.getAttribute) return '';
+    return [
+      typeof el.className === 'string' ? el.className : '',
+      el.id || '',
+      el.getAttribute('data-test-id') || '',
+      el.getAttribute('data-testid') || ''
+    ].join(' ');
+  }
+
+  function hasBlockedAncestor(el, stopAt) {
+    for (let n = el; n && n !== document.body; n = n.parentElement) {
+      if (NO_ACCORDION_UNFOLD.test(elAttrText(n))) return true;
+      if (stopAt && n === stopAt) break;
+    }
+    return false;
+  }
+
+  // Ignore aria-hidden="true" when a cookie modal marks <main>, <article>, or an app wrapper hidden
+  function inHiddenAriaSubtree(el) {
+    for (let n = el; n && n !== document.body; n = n.parentElement) {
+      if (n.getAttribute && n.getAttribute('aria-hidden') === 'true') {
+        if (n === el) return true;
+        if (/^(MAIN|ARTICLE)$/.test(n.tagName) || n.getAttribute('role') === 'main') continue;
+        if (n.querySelector('main, article, [role="main"]')) continue;
+        if (normText(n.textContent).length >= 1000) continue;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Count visible, non-chrome, non-paywall body prose paragraphs (>= 120 chars).
+   */
+  function getVisibleBodyProseStats() {
+    let visibleLongCount = 0;
+    let visibleLongChars = 0;
+    toArray(document.querySelectorAll('p, [role="paragraph"]')).forEach(p => {
+      const txtLen = normText(p.textContent).length;
+      if (txtLen < 120 || linkDensity(p) >= 0.45) return;
+      if (p.closest('nav, header, footer, aside, form, dialog, [role="navigation"], [role="complementary"], [role="dialog"], [aria-modal="true"]')) return;
+      const hiddenAnc = p.closest('[hidden]');
+      if (hiddenAnc && hiddenAnc.getAttribute('hidden') !== 'until-found') return;
+      if (inHiddenAriaSubtree(p) || hasBlockedAncestor(p, null)) return;
+      const cs = getComputedStyle(p);
+      if (cs.display === 'none' || cs.visibility === 'hidden' || cs.visibility === 'collapse') return;
+      if (cs.opacity === '0' || parseFloat(cs.fontSize) === 0) return;
+      if (p.getClientRects().length === 0) return;
+      const r = p.getBoundingClientRect();
+      if (r.width <= 2 || r.height <= 2) return;
+      visibleLongCount++;
+      visibleLongChars += txtLen;
+    });
+    return { visibleLongCount, visibleLongChars };
+  }
+
   function hasDirectText(el) {
-    for (const node of el.childNodes) {
+    const nodes = toArray(el.childNodes);
+    for (let i = 0; i < nodes.length; i++) {
+      const node = nodes[i];
       if (node.nodeType === Node.TEXT_NODE && node.nodeValue.trim()) return true;
     }
     return false;
@@ -1312,8 +1428,8 @@
    */
   function analyzePageAndAnnotateClone(clone) {
     if (!document.body || !clone.body) return null;
-    const originals = Array.from(document.body.querySelectorAll('*'));
-    const copies = Array.from(clone.body.querySelectorAll('*'));
+    const originals = toArray(document.body.querySelectorAll('*'));
+    const copies = toArray(clone.body.querySelectorAll('*'));
     if (originals.length !== copies.length) return null;
 
     const copyOf = new Map();
@@ -1346,29 +1462,19 @@
     const unfoldedPanels = new Set();
     const insideUnfolded = new Set();
     const unfoldedAncestors = new Set();
-    const elAttrText = (el) => [
-      typeof el.className === 'string' ? el.className : '',
-      el.id || '',
-      el.getAttribute('data-test-id') || '',
-      el.getAttribute('data-testid') || ''
-    ].join(' ');
     const hasSubstantialProse = (node) =>
       normText(node.textContent).length >= 500 &&
       linkDensity(node) < 0.25 &&
-      Array.from(node.querySelectorAll('p, [role="paragraph"]')).filter(p => normText(p.textContent).length >= 120).length >= 2;
+      toArray(node.querySelectorAll('p, [role="paragraph"]')).filter(p => normText(p.textContent).length >= 120).length >= 2;
 
     const rawPanels = [];
-    for (const el of originals) {
+    for (let i = 0; i < originals.length; i++) {
+      const el = originals[i];
       if (!/^(SECTION|DIV|DETAILS)$/.test(el.tagName)) continue;
       const mainRoot = el.closest('article, main, [role="main"]');
       if (!mainRoot) continue;
-      if (el.closest('nav, header, footer, aside, dialog, form, [role="navigation"], [role="complementary"], [role="dialog"], [aria-modal="true"], [hidden], [aria-hidden="true"]')) continue;
-      let blocked = false;
-      for (let n = el; n && n !== document.body; n = n.parentElement) {
-        if (NO_ACCORDION_UNFOLD.test(elAttrText(n))) { blocked = true; break; }
-        if (n === mainRoot) break;
-      }
-      if (blocked) continue;
+      if (el.closest('nav, header, footer, aside, dialog, form, [role="navigation"], [role="complementary"], [role="dialog"], [aria-modal="true"], [hidden]') || inHiddenAriaSubtree(el)) continue;
+      if (hasBlockedAncestor(el, mainRoot)) continue;
       const isClosedDetails = el.tagName === 'DETAILS' && !el.open;
       const cs = getCS(el);
       const prev = el.previousElementSibling;
@@ -1379,12 +1485,13 @@
       if (!isClosedDetails && !(cs.display === 'none' && hasAccordionCue)) continue;
       rawPanels.push(el);
     }
-    for (const el of rawPanels) {
+    for (let i = 0; i < rawPanels.length; i++) {
+      const el = rawPanels[i];
       let accept = hasSubstantialProse(el);
       if (!accept && el.parentElement && el.parentElement.parentElement &&
           /^(UL|OL|DIV|ARTICLE|MAIN|SECTION)$/.test(el.parentElement.parentElement.tagName) &&
           normText(el.textContent).length >= 300) {
-        accept = Array.from(el.parentElement.parentElement.children).some(
+        accept = toArray(el.parentElement.parentElement.children).some(
           sib => sib !== el.parentElement && hasSubstantialProse(sib)
         );
       }
@@ -1401,7 +1508,8 @@
           return;
         }
         insideUnfolded.add(node);
-        for (const ch of node.children || []) walkDesc(ch);
+        const children = toArray(node.children);
+        for (let k = 0; k < children.length; k++) walkDesc(children[k]);
       };
       walkDesc(el);
     }
@@ -1433,9 +1541,10 @@
 
     // 1. Identify primary reading column via weighted clustering over visible prose blocks
     const proseCandidates = [];
-    for (const el of originals) {
+    for (let i = 0; i < originals.length; i++) {
+      const el = originals[i];
       if (!(el.tagName === 'P' || el.getAttribute('role') === 'paragraph')) continue;
-      if (el.closest('nav, header, footer, aside, form, dialog, [role="navigation"], [role="complementary"], [role="dialog"], [aria-modal="true"], [hidden], [aria-hidden="true"]')) continue;
+      if (el.closest('nav, header, footer, aside, form, dialog, [role="navigation"], [role="complementary"], [role="dialog"], [aria-modal="true"], [hidden]') || inHiddenAriaSubtree(el)) continue;
       const txt = normText(el.textContent);
       if (txt.length < 120 || linkDensity(el) >= 0.35) continue;
       const cs = getCS(el);
@@ -1489,11 +1598,11 @@
 
     const ancestorsOfProse = new Set();
     if (col) {
-      for (const item of col.items) {
+      col.items.forEach(item => {
         for (let n = item.el; n && n !== document.documentElement; n = n.parentElement) {
           ancestorsOfProse.add(n);
         }
-      }
+      });
     }
 
     const h1 = document.querySelector('article h1, main h1, [role="main"] h1, h1');
@@ -1501,7 +1610,7 @@
     if (h1Rect && clone.body) {
       clone.body.setAttribute('data-inkpages-h1-bottom', String(Math.round(h1Rect.bottom)));
     }
-    const protectedAncestors = new Set([...ancestorsOfProse, ...unfoldedAncestors]);
+    const protectedAncestors = new Set([...Array.from(ancestorsOfProse), ...Array.from(unfoldedAncestors)]);
     if (h1) {
       for (let n = h1; n && n !== document.documentElement; n = n.parentElement) {
         protectedAncestors.add(n);
@@ -1642,11 +1751,11 @@
 
   function wrapBoldNotes(doc) {
     const owner = doc.ownerDocument || doc;
-    doc.querySelectorAll('[' + NOTE_BOLD + ']').forEach(el => {
+    toArray(doc.querySelectorAll('[' + NOTE_BOLD + ']')).forEach(el => {
       if (el.tagName === 'B' || el.tagName === 'STRONG' || el.closest('b, strong, [' + ADDED_BOLD + ']')) return;
       const bold = owner.createElement('b');
       bold.setAttribute(ADDED_BOLD, '');
-      bold.append(...el.childNodes);
+      bold.append(...toArray(el.childNodes));
       el.append(bold);
     });
   }
@@ -1659,8 +1768,8 @@
    */
   function preprocessDOM(doc, scholarly = false) {
     // Collapsed sections openable via find-in-page (Wikipedia mobile) and unfolded body accordions become visible before parsing
-    doc.querySelectorAll('[hidden="until-found"]').forEach(el => el.removeAttribute('hidden'));
-    doc.querySelectorAll('[' + NOTE_UNFOLDED + ']').forEach(panel => {
+    toArray(doc.querySelectorAll('[hidden="until-found"]')).forEach(el => el.removeAttribute('hidden'));
+    toArray(doc.querySelectorAll('[' + NOTE_UNFOLDED + ']')).forEach(panel => {
       if (!panel.isConnected) return;
       if (panel.tagName === 'DETAILS') {
         panel.setAttribute('open', '');
@@ -1684,23 +1793,23 @@
         li.parentElement.setAttribute('data-inkpages-unwrap-list', '');
       }
     });
-    doc.querySelectorAll('[data-inkpages-unwrap-list]').forEach(list => {
+    toArray(doc.querySelectorAll('[data-inkpages-unwrap-list]')).forEach(list => {
       if (!list.isConnected) return;
       const wrapper = doc.createElement('div');
-      Array.from(list.children).forEach(li => {
-        if (li.tagName === 'LI') wrapper.append(...li.childNodes);
+      toArray(list.children).forEach(li => {
+        if (li.tagName === 'LI') wrapper.append(...toArray(li.childNodes));
         else wrapper.appendChild(li);
       });
       list.replaceWith(wrapper);
     });
 
     // Normalise WAI-ARIA role="paragraph" elements to <p> so Readability scores them consistently
-    doc.querySelectorAll('div[role="paragraph"], span[role="paragraph"]').forEach(el => {
+    toArray(doc.querySelectorAll('div[role="paragraph"], span[role="paragraph"]')).forEach(el => {
       const p = doc.createElement('p');
-      for (const attr of Array.from(el.attributes)) {
+      toArray(el.attributes).forEach(attr => {
         if (attr.name !== 'role') p.setAttribute(attr.name, attr.value);
-      }
-      p.append(...el.childNodes);
+      });
+      p.append(...toArray(el.childNodes));
       el.replaceWith(p);
     });
 
@@ -1764,25 +1873,25 @@
 
     // Remove pre-prose author-bio mini-cards and standalone header timestamps on non-scholarly pages
     if (!scholarly) {
-      doc.querySelectorAll('[rel="author"], [itemprop="author"], address').forEach(el => {
+      toArray(doc.querySelectorAll('[rel="author"], [itemprop="author"], address')).forEach(el => {
         if (!el.isConnected) return;
         let card = null;
         for (let n = el.parentElement; n && n !== doc.body; n = n.parentElement) {
           if (/^(MAIN|ARTICLE)$/.test(n.tagName) || n.getAttribute('role') === 'main') break;
           if (n.textContent.trim().length >= 350 || n.querySelector('h1, figure, main, article')) break;
           if (/^(DIV|ASIDE|HEADER|SECTION)$/.test(n.tagName)) {
-            const ps = Array.from(n.querySelectorAll('p'));
+            const ps = toArray(n.querySelectorAll('p'));
             if (ps.length && ps.every(p => p.textContent.trim().length < 150)) card = n;
           }
         }
         if (card) card.remove();
       });
 
-      const firstProse = Array.from(doc.querySelectorAll('p')).find(
+      const firstProse = toArray(doc.querySelectorAll('p')).find(
         p => normText(p.textContent).length > 100 && !p.closest('header, nav, footer, aside, form')
       );
       if (firstProse) {
-        doc.querySelectorAll('time').forEach(t => {
+        toArray(doc.querySelectorAll('time')).forEach(t => {
           if (t.closest('p, li, blockquote, figcaption')) return;
           if (normText(t.textContent).length >= 60) return;
           if (t.compareDocumentPosition(firstProse) & Node.DOCUMENT_POSITION_FOLLOWING) t.remove();
@@ -1792,14 +1901,14 @@
 
     // Remove forms holding under half of page text (e.g. paywall purchase/login/newsletter forms)
     const pageTextLength = (doc.body && doc.body.textContent || '').length;
-    doc.querySelectorAll('form').forEach(form => {
+    toArray(doc.querySelectorAll('form')).forEach(form => {
       if (form.textContent.length < pageTextLength * 0.5) form.remove();
     });
 
     removeSignInGates(doc);
 
     // Site logos: a link to "/" holding only an image/svg with no link text
-    doc.querySelectorAll('a[href]').forEach(link => {
+    toArray(doc.querySelectorAll('a[href]')).forEach(link => {
       if (link.textContent.trim() || !link.querySelector('img, svg, picture')) return;
       try {
         const url = new URL(link.getAttribute('href'), document.baseURI);
@@ -1810,8 +1919,8 @@
     });
 
     // Strip inert HTML5 <video>/<audio> fallback notices
-    doc.querySelectorAll('video, audio').forEach(media => media.replaceChildren());
-    doc.querySelectorAll('p, div, span').forEach(el => {
+    toArray(doc.querySelectorAll('video, audio')).forEach(media => media.replaceChildren());
+    toArray(doc.querySelectorAll('p, div, span')).forEach(el => {
       if (!el.isConnected || el.querySelector('img, figure, table')) return;
       const t = normText(el.textContent);
       if (t && t.length < 240 && /^to view this (?:video|audio) please enable javascript\b/i.test(t)) {
@@ -1819,40 +1928,57 @@
       }
     });
 
-    // Multi-language cookie/social-embed consent placeholders and self-contained CTA/follow promo cards
-    if (!scholarly) {
-      doc.querySelectorAll('div, aside, section').forEach(el => {
-        if (!el.isConnected || el.closest('blockquote, figure')) return;
-        const t = normText(el.textContent);
-        if (!t || t.length >= 500) return;
-        if (el.querySelector('article, main, img, picture, figure, video, table, pre, code, blockquote')) return;
-        const h = el.querySelector('h2, h3, h4, h5');
-        if (!h) return;
-        const ps = Array.from(el.querySelectorAll('p'));
-        const pTexts = ps.map(p => normText(p.textContent));
-        if (!ps.length || ps.length > 2 || pTexts.every(pt => pt.length < 25) || pTexts.some(pt => pt.length >= 240)) return;
-        const links = Array.from(el.querySelectorAll('a[href]'));
-        if (!links.length || links.length > 3) return;
-        const lastP = ps[ps.length - 1];
-        const ctaAfterProse = links.every(a =>
-          !a.closest('p') &&
-          (lastP.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING) &&
-          (a.matches('[role="button"], [class*="button" i], [class*="btn" i], [class*="cta" i]') ||
-           Boolean(a.closest('[class*="button" i], [class*="btn" i], [class*="cta" i]')))
-        );
-        if (!ctaAfterProse) return;
-        const hasPromoAttr = [el, ...el.querySelectorAll('*')].some(n => {
+    // Multi-language cookie/social-embed consent placeholders and self-contained CTA/follow/alert promo cards
+    toArray(doc.querySelectorAll('div, aside, section')).forEach(el => {
+      if (!el.isConnected || el.closest('blockquote, figure')) return;
+      const t = normText(el.textContent);
+      if (!t || t.length >= 500) return;
+      if (el.querySelector('article, main, img, picture, figure, video, table, pre, code, blockquote')) return;
+      const headingsInBox = el.querySelectorAll('h1, h2, h3, h4, h5');
+      if (headingsInBox.length !== 1) return;
+      const ps = toArray(el.querySelectorAll('p'));
+      const pTexts = ps.map(p => normText(p.textContent));
+
+      if (scholarly) {
+        if (t.length >= 350 || el.querySelector('h1, h2')) return;
+        const shortPsOk = !ps.length || (ps.length <= 2 && pTexts.every(pt => pt.length < 240));
+        if (!shortPsOk) return;
+        const hasAlertAttr = [el].concat(toArray(el.querySelectorAll('*'))).some(n => {
           const attrs = [
             typeof n.className === 'string' ? n.className : '',
             n.id || '',
-            n.getAttribute('data-testid') || '',
-            n.getAttribute('data-component') || ''
+            n.getAttribute && (n.getAttribute('data-testid') || ''),
+            n.getAttribute && (n.getAttribute('data-component') || '')
           ].join(' ');
-          return /\b(follow|promo|cta|newsletter|subscribe)\b/i.test(attrs) || /(?:follow|promo|cta|newsletter|subscribe)-box/i.test(attrs);
+          return /\b(signup|alert-ad|follow|promo|cta|newsletter|subscribe)\b/i.test(attrs) ||
+                 /(?:signup|alert|follow|promo|cta|newsletter|subscribe)(?:[-_]|__)(?:box|ad|alert|card|title)/i.test(attrs);
         });
-        if (hasPromoAttr || el.querySelector('button')) el.remove();
+        if (hasAlertAttr) el.remove();
+        return;
+      }
+
+      if (!ps.length || ps.length > 2 || pTexts.every(pt => pt.length < 25) || pTexts.some(pt => pt.length >= 240)) return;
+      const links = toArray(el.querySelectorAll('a[href]'));
+      if (!links.length || links.length > 3) return;
+      const lastP = ps[ps.length - 1];
+      const ctaAfterProse = links.every(a =>
+        !a.closest('p') &&
+        (lastP.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING) &&
+        (a.matches('[role="button"], [class*="button" i], [class*="btn" i], [class*="cta" i]') ||
+         Boolean(a.closest('[class*="button" i], [class*="btn" i], [class*="cta" i]')))
+      );
+      if (!ctaAfterProse) return;
+      const hasPromoAttr = [el].concat(toArray(el.querySelectorAll('*'))).some(n => {
+        const attrs = [
+          typeof n.className === 'string' ? n.className : '',
+          n.id || '',
+          n.getAttribute && (n.getAttribute('data-testid') || ''),
+          n.getAttribute && (n.getAttribute('data-component') || '')
+        ].join(' ');
+        return /\b(follow|promo|cta|newsletter|subscribe)\b/i.test(attrs) || /(?:follow|promo|cta|newsletter|subscribe)-box/i.test(attrs);
       });
-    }
+      if (hasPromoAttr || el.querySelector('button')) el.remove();
+    });
 
     const consentPatterns = [
       /cookie[s]?.*(?:accepte|toestemming|consent|akzeptieren|accetta)/i,
@@ -1881,7 +2007,9 @@
       const parent = el.parentElement;
       if (!parent) return false;
       let prose = 0;
-      for (const child of parent.children) {
+      const kids = toArray(parent.children);
+      for (let i = 0; i < kids.length; i++) {
+        const child = kids[i];
         if (child !== el && child.tagName === 'P' && child.textContent.trim().length >= 100) prose++;
       }
       return prose >= 2;
@@ -1889,7 +2017,7 @@
     const looksLikeBox = (el) =>
       el.querySelector('h2, h3, h4, h5, h6, button') !== null || el.querySelectorAll('a[href]').length >= 2;
 
-    doc.querySelectorAll('a[href]').forEach(link => {
+    toArray(doc.querySelectorAll('a[href]')).forEach(link => {
       if (!link.isConnected) return;
       if (!GATE_HREF.test(link.getAttribute('href')) || !GATE_LINK_TEXT.test(link.textContent)) return;
       let gate = null;
@@ -1906,13 +2034,13 @@
    */
   function copyShadowCodeBlocks(clone) {
     if (!document.body || !clone.body) return;
-    const originals = Array.from(document.body.querySelectorAll('*'));
-    const copies = Array.from(clone.body.querySelectorAll('*'));
+    const originals = toArray(document.body.querySelectorAll('*'));
+    const copies = toArray(clone.body.querySelectorAll('*'));
     if (originals.length !== copies.length) return;
 
     const shadowCode = (root) => {
-      const found = Array.from(root.querySelectorAll('pre'));
-      root.querySelectorAll('*').forEach(el => {
+      const found = toArray(root.querySelectorAll('pre'));
+      toArray(root.querySelectorAll('*')).forEach(el => {
         const inner = el.openOrClosedShadowRoot || el.shadowRoot;
         if (inner) found.push(...shadowCode(inner));
       });
@@ -1924,7 +2052,7 @@
       const copy = copies[i];
       if (!root || copy.localName !== host.localName || host.querySelector('pre')) return;
       const code = shadowCode(root);
-      if (code.length) copy.replaceWith(...code.map(pre => pre.cloneNode(true)), ...copy.childNodes);
+      if (code.length) copy.replaceWith(...code.map(pre => pre.cloneNode(true)), ...toArray(copy.childNodes));
     });
   }
 
@@ -1947,8 +2075,8 @@
     if (!pristine) return;
     const id = (el) => el.getAttribute(NOTE_ID);
     const outOf = new Map();
-    out.body.querySelectorAll('[' + NOTE_ID + ']').forEach(el => outOf.set(id(el), el));
-    const all = Array.from(pristine.querySelectorAll('[' + NOTE_ID + ']'));
+    toArray(out.body.querySelectorAll('[' + NOTE_ID + ']')).forEach(el => outOf.set(id(el), el));
+    const all = toArray(pristine.querySelectorAll('[' + NOTE_ID + ']'));
     const firstKept = all.findIndex(el => outOf.has(id(el)));
 
     const isUsable = (el, top, isLead, maxLD) => {
@@ -1968,7 +2096,7 @@
 
     const sanitizeRestored = (el) => {
       const copy = out.importNode(el, true);
-      [copy, ...copy.querySelectorAll('*')].forEach(n => {
+      [copy].concat(toArray(copy.querySelectorAll('*'))).forEach(n => {
         const keepCaps = ['caption', 'figcaption'].filter(c => n.classList && n.classList.contains(c));
         n.removeAttribute('class');
         if (keepCaps.length) n.setAttribute('class', keepCaps.join(' '));
@@ -1988,12 +2116,21 @@
 
     if (scholarly) {
       // Recover detached scholarly Abstract / Summary blocks sitting before the main body start
-      const hasAbstract = Array.from(out.body.querySelectorAll('h2, h3')).some(h => ABSTRACT_HEADING.test(normText(h.textContent)));
+      const inBackmatter = (node, limit) => {
+        for (let cur = node; cur && cur !== limit; cur = cur.parentElement) {
+          if (/^(DIV|SECTION|ASIDE)$/.test(cur.tagName)) {
+            const fh = cur.querySelector('h1, h2, h3, h4');
+            if (fh && SCHOLARLY_BACKMATTER_HEADING.test(normText(fh.textContent))) return cur;
+          }
+        }
+        return null;
+      };
+      const hasAbstract = toArray(out.body.querySelectorAll('h2, h3')).some(h => ABSTRACT_HEADING.test(normText(h.textContent)));
       if (!hasAbstract) {
         const bodyText = normText(out.body.textContent);
         const h1 = pristine.querySelector('article h1, main h1, [role="main"] h1, h1');
         const coreIdx = all.findIndex(el =>
-          outOf.has(id(el)) && (
+          outOf.has(id(el)) && !inBackmatter(el, pristine) && (
             (/^H[2-3]$/.test(el.tagName) && SCHOLARLY_CORE_HEADING.test(normText(el.textContent))) ||
             (el.tagName === 'P' && normText(el.textContent).length >= 160 && linkDensity(el) < 0.25 && !METADATA_PREFIX.test(normText(el.textContent)))
           )
@@ -2022,8 +2159,16 @@
           const frag = out.createDocumentFragment();
           absBlocks.forEach(el => frag.appendChild(sanitizeRestored(el)));
           const anchor = scanEnd < all.length ? outOf.get(id(all[scanEnd])) : null;
-          if (anchor) anchorOf(anchor).before(frag);
-          else out.body.prepend(frag);
+          if (anchor) {
+            let target = anchorOf(anchor);
+            const bmWrap = inBackmatter(target, out.body);
+            if (bmWrap && bmWrap !== out.body && bmWrap.id !== 'readability-page-1') {
+              target = bmWrap;
+            }
+            target.before(frag);
+          } else {
+            out.body.prepend(frag);
+          }
         }
       }
       return;
@@ -2040,7 +2185,7 @@
     const signature = (el) => {
       const parts = [];
       for (let n = el, depth = 0; n && n !== scope && depth < 5; n = n.parentElement, depth++) {
-        parts.push(n.tagName + '.' + Array.from(n.classList).sort().join('.'));
+        parts.push(n.tagName + '.' + toArray(n.classList).sort().join('.'));
       }
       return parts.join('>');
     };
@@ -2144,10 +2289,12 @@
     // 2. Find article body start anchor (earlier of core section heading or first genuine prose block),
     //    stripping non-editorial metadata cards before that anchor
     let coreHeading = null;
-    for (const h of out.body.querySelectorAll('h2, h3')) {
+    const bodyHeadings = toArray(out.body.querySelectorAll('h2, h3'));
+    for (let i = 0; i < bodyHeadings.length; i++) {
+      const h = bodyHeadings[i];
       if (SCHOLARLY_CORE_HEADING.test(normText(h.textContent))) { coreHeading = h; break; }
     }
-    const firstSubstantialP = Array.from(out.body.querySelectorAll('p')).find(p => {
+    const firstSubstantialP = toArray(out.body.querySelectorAll('p')).find(p => {
       const t = normText(p.textContent);
       return t.length >= 160 && linkDensity(p) < 0.25 && !METADATA_PREFIX.test(t) &&
              !/^(open access|research article|short communication|brief communication)/i.test(t);
@@ -2157,14 +2304,14 @@
     if (coreHeading && firstSubstantialP &&
         (firstSubstantialP.compareDocumentPosition(coreHeading) & Node.DOCUMENT_POSITION_FOLLOWING)) {
       // Preserve an editorial summary heading+prose sitting before coreHeading (e.g. Science Editor's Summary)
-      const prevH = Array.from(out.body.querySelectorAll('h2, h3')).reverse().find(h =>
+      const prevH = toArray(out.body.querySelectorAll('h2, h3')).reverse().find(h =>
         (h.compareDocumentPosition(firstSubstantialP) & Node.DOCUMENT_POSITION_FOLLOWING)
       );
       startAnchor = prevH || firstSubstantialP;
     }
 
     if (startAnchor) {
-      Array.from(out.body.querySelectorAll('h1, h2, h3, h4, p, ul, ol, div, span')).forEach(el => {
+      toArray(out.body.querySelectorAll('h1, h2, h3, h4, p, ul, ol, div, span')).forEach(el => {
         if (!el.isConnected || el.contains(startAnchor) || startAnchor.contains(el)) return;
         if (el.compareDocumentPosition(startAnchor) & Node.DOCUMENT_POSITION_FOLLOWING) {
           if (!el.querySelector('figure, img, table')) el.remove();
@@ -2173,7 +2320,7 @@
     }
 
     // 3. Remove standalone file badges and metadata/footer boilerplate lines anywhere in scholarly body
-    out.body.querySelectorAll('p, div, span, li').forEach(el => {
+    toArray(out.body.querySelectorAll('p, div, span, li')).forEach(el => {
       if (!el.isConnected || el.closest('table, figcaption') || el.querySelector('img, svg, table, figure')) return;
       const t = normText(el.textContent);
       if (!t || t.length >= 1200) return;
@@ -2190,11 +2337,13 @@
     });
 
     // 4. Remove early pre-Introduction "Figures" preview strip when its images duplicate images later in the article
-    const introHeading = Array.from(out.body.querySelectorAll('h2, h3')).find(h =>
+    const introHeading = toArray(out.body.querySelectorAll('h2, h3')).find(h =>
       /^(introduction|background|\d+\.?\s+(introduction|background))$/i.test(normText(h.textContent))
     );
     if (introHeading) {
-      for (const h of Array.from(out.body.querySelectorAll('h2, h3'))) {
+      const preHeadings = toArray(out.body.querySelectorAll('h2, h3'));
+      for (let i = 0; i < preHeadings.length; i++) {
+        const h = preHeadings[i];
         if (!h.isConnected || !(h.compareDocumentPosition(introHeading) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
         if (!/^figures$/i.test(normText(h.textContent))) continue;
         const level = parseInt(h.tagName[1], 10);
@@ -2203,11 +2352,11 @@
         let cur = h.nextElementSibling;
         while (cur && cur !== introHeading && !(/^H[1-6]$/.test(cur.tagName) && parseInt(cur.tagName[1], 10) <= level)) {
           stripNodes.push(cur);
-          cur.querySelectorAll('img').forEach(img => { const s = img.getAttribute('src'); if (s) stripSrcs.push(s); });
+          toArray(cur.querySelectorAll('img')).forEach(img => { const s = img.getAttribute('src'); if (s) stripSrcs.push(s); });
           cur = cur.nextElementSibling;
         }
         const laterSrcs = new Set();
-        Array.from(out.body.querySelectorAll('img')).forEach(img => {
+        toArray(out.body.querySelectorAll('img')).forEach(img => {
           if (introHeading.compareDocumentPosition(img) & Node.DOCUMENT_POSITION_FOLLOWING) {
             const s = img.getAttribute('src');
             if (s) laterSrcs.add(s);
@@ -2223,8 +2372,9 @@
     }
 
     // 5. Remove scholarly back-matter and empty Figures headings by heading hierarchy
-    const headings = Array.from(out.body.querySelectorAll('h2, h3, h4'));
-    for (const h of headings) {
+    const headings = toArray(out.body.querySelectorAll('h2, h3, h4'));
+    for (let i = 0; i < headings.length; i++) {
+      const h = headings[i];
       if (!h.isConnected) continue;
       const label = normText(h.textContent);
       if (!SCHOLARLY_BACKMATTER_HEADING.test(label)) continue;
@@ -2243,7 +2393,7 @@
       const parent = h.parentElement;
       if (parent && parent !== out.body && parent.id !== 'readability-page-1' &&
           /^(DIV|SECTION|ASIDE)$/.test(parent.tagName)) {
-        const parentHeadings = Array.from(parent.querySelectorAll('h1, h2, h3, h4'));
+        const parentHeadings = toArray(parent.querySelectorAll('h1, h2, h3, h4'));
         const holdsCore = parentHeadings.some(ph => SCHOLARLY_KEEP_HEADING.test(normText(ph.textContent)));
         const allSubordinateOrBackmatter = parentHeadings.every(ph =>
           ph === h || parseInt(ph.tagName[1], 10) > level || SCHOLARLY_BACKMATTER_HEADING.test(normText(ph.textContent))
@@ -2264,7 +2414,7 @@
       h.remove();
     }
 
-    out.body.querySelectorAll('section, div').forEach(el => {
+    toArray(out.body.querySelectorAll('section, div')).forEach(el => {
       if (!el.isConnected || el.id === 'readability-page-1') return;
       if (!normText(el.textContent) && !el.querySelector('img, figure, table, pre, svg')) el.remove();
     });
@@ -2288,7 +2438,7 @@
   function extractArticleByline(doc, rawByline, scholarly, domFallbackByline) {
     const cleaned = (rawByline || '').replace(/[\s,]+$/, '').trim();
     if (scholarly) {
-      let authors = Array.from(doc.querySelectorAll('meta[name="citation_author"]'))
+      let authors = toArray(doc.querySelectorAll('meta[name="citation_author"]'))
         .map(m => (m.getAttribute('content') || '').trim())
         .filter(Boolean);
       if (!authors.length) {
@@ -2309,6 +2459,68 @@
     return domFallbackByline || '';
   }
 
+  function extractCleanReadabilityFallback(scholarly, domFallbackByline) {
+    const fallbackClone = document.cloneNode(true);
+    toArray(fallbackClone.querySelectorAll('main, article, [role="main"]')).forEach(root => {
+      for (let n = root; n && n !== fallbackClone.body; n = n.parentElement) {
+        if (n.getAttribute && n.getAttribute('aria-hidden') === 'true') {
+          n.removeAttribute('aria-hidden');
+        }
+      }
+    });
+    try {
+      if (document.body && fallbackClone.body) {
+        const originals = toArray(document.body.querySelectorAll('*'));
+        const copies = toArray(fallbackClone.body.querySelectorAll('*'));
+        if (originals.length === copies.length) {
+          for (let i = 0; i < originals.length; i++) {
+            const el = originals[i];
+            if (NEVER_HIDE_TAGS.test(el.tagName) || el.closest('[hidden="until-found"]')) continue;
+            const cs = getComputedStyle(el);
+            if (cs.display === 'none' || cs.visibility === 'hidden' || cs.visibility === 'collapse') {
+              copies[i].style.display = 'none';
+              copies[i].setAttribute('hidden', '');
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Fallback visibility sync failed:', e);
+    }
+    try {
+      preprocessDOM(fallbackClone, scholarly);
+    } catch (e) {
+      console.warn('Fallback preprocessDOM failed:', e);
+    }
+    const fbReader = new Readability(fallbackClone, {
+      charThreshold: 200,
+      classesToPreserve: ['caption', 'figcaption']
+    });
+    const fbArticle = fbReader.parse();
+    if (!fbArticle) return null;
+
+    const cleanTitle = cleanArticleTitle(fbArticle.title, document, scholarly);
+    const cleanByline = extractArticleByline(document, fbArticle.byline, scholarly, domFallbackByline);
+    const fbOut = new DOMParser().parseFromString(fbArticle.content, 'text/html');
+    const bodyText = fbOut.body.textContent || '';
+    const wordCount = bodyText.trim().split(/\s+/).filter(Boolean).length;
+
+    return {
+      title: cleanTitle || document.title,
+      byline: cleanByline,
+      content: sanitizeHTML(fbOut.body.innerHTML),
+      textContent: bodyText,
+      excerpt: fbArticle.excerpt || '',
+      siteName: fbArticle.siteName || extractSiteName(),
+      length: bodyText.length,
+      wordCount,
+      readingTime: Math.ceil(wordCount / 200),
+      sourceUrl: window.location.href,
+      dir: fbArticle.dir || 'ltr',
+      lang: fbArticle.lang || document.documentElement.lang || 'en'
+    };
+  }
+
   /**
    * Extract article using live geometric/typographic analysis, Readability, column stitching, and post-parse bold.
    */
@@ -2319,38 +2531,84 @@
       ? normText(authorEl.textContent) : '';
 
     const documentClone = document.cloneNode(true);
-    analyzePageAndAnnotateClone(documentClone);
-    copyShadowCodeBlocks(documentClone);
+    let annotateThrew = false;
+    try {
+      analyzePageAndAnnotateClone(documentClone);
+    } catch (e) {
+      annotateThrew = true;
+      console.warn('analyzePageAndAnnotateClone failed:', e);
+    }
+    try {
+      copyShadowCodeBlocks(documentClone);
+    } catch (e) {
+      console.warn('copyShadowCodeBlocks failed:', e);
+    }
+    try {
+      preprocessDOM(documentClone, scholarly);
+    } catch (e) {
+      console.warn('preprocessDOM failed:', e);
+    }
 
-    preprocessDOM(documentClone, scholarly);
     const pristine = documentClone.body ? documentClone.body.cloneNode(true) : null;
 
-    const reader = new Readability(documentClone, {
-      charThreshold: scholarly ? 250 : 500,
-      classesToPreserve: ['caption', 'figcaption']
-    });
+    let article = null;
+    try {
+      const reader = new Readability(documentClone, {
+        charThreshold: scholarly ? 250 : 500,
+        classesToPreserve: ['caption', 'figcaption']
+      });
+      article = reader.parse();
+    } catch (e) {
+      console.warn('Primary Readability failed:', e);
+    }
 
-    const article = reader.parse();
-    if (!article) return null;
+    const canFallback = () => annotateThrew || getVisibleBodyProseStats().visibleLongChars >= 400;
+
+    if (!article) {
+      return canFallback() ? extractCleanReadabilityFallback(scholarly, domFallbackByline) : null;
+    }
 
     const cleanTitle = cleanArticleTitle(article.title, document, scholarly);
     const cleanByline = extractArticleByline(document, article.byline, scholarly, domFallbackByline);
 
     const out = new DOMParser().parseFromString(article.content, 'text/html');
     const metaDescEl = document.querySelector('meta[property="og:description"], meta[name="description"]');
-    stitchVisualColumn(out, pristine, cleanTitle, metaDescEl ? metaDescEl.content : '', scholarly);
-    if (scholarly) cleanScholarlyArticle(out, cleanTitle);
+    try {
+      stitchVisualColumn(out, pristine, cleanTitle, metaDescEl ? metaDescEl.content : '', scholarly);
+    } catch (e) {
+      console.warn('stitchVisualColumn failed:', e);
+    }
+    if (scholarly) {
+      try {
+        cleanScholarlyArticle(out, cleanTitle);
+      } catch (e) {
+        console.warn('cleanScholarlyArticle failed:', e);
+      }
+    }
 
-    wrapBoldNotes(out);
-    const marks = out.body.querySelectorAll('b[' + ADDED_BOLD + ']');
-    let bolded = 0;
-    marks.forEach(b => { bolded += b.textContent.length; });
-    if (bolded / (out.body.textContent.length || 1) > 0.3) {
-      marks.forEach(b => b.replaceWith(...b.childNodes));
+    try {
+      wrapBoldNotes(out);
+      const marks = toArray(out.body.querySelectorAll('b[' + ADDED_BOLD + ']'));
+      let bolded = 0;
+      marks.forEach(b => { bolded += b.textContent.length; });
+      if (bolded / (out.body.textContent.length || 1) > 0.3) {
+        marks.forEach(b => b.replaceWith(...toArray(b.childNodes)));
+      }
+    } catch (e) {
+      console.warn('wrapBoldNotes failed:', e);
     }
 
     const bodyText = out.body.textContent || '';
     const wordCount = bodyText.trim().split(/\s+/).filter(Boolean).length;
+    if (wordCount < 80 && canFallback()) {
+      try {
+        const fb = extractCleanReadabilityFallback(scholarly, domFallbackByline);
+        if (fb && fb.wordCount > wordCount) return fb;
+      } catch (e) {
+        console.warn('Clean Readability fallback failed:', e);
+      }
+    }
+
     const readingTime = Math.ceil(wordCount / 200);
 
     return {
@@ -3586,10 +3844,10 @@
     elements.articleContent.innerHTML = articleData.content || '';
 
     // Drop article ids that clash with the reader's own (e.g. a site's <article id="article-content">)
-    const readerIds = new Set(Array.from(shadowRoot.querySelectorAll('[id]'))
+    const readerIds = new Set(toArray(shadowRoot.querySelectorAll('[id]'))
       .filter(el => el === elements.articleContent || !elements.articleContent.contains(el))
       .map(el => el.id));
-    elements.articleContent.querySelectorAll('[id]').forEach(el => {
+    toArray(elements.articleContent.querySelectorAll('[id]')).forEach(el => {
       if (readerIds.has(el.id)) el.removeAttribute('id');
     });
 
@@ -3665,6 +3923,7 @@
 
     // Generate listing HTML with nested structure
     let html = '<div class="listing-content">';
+    html += '<div class="listing-mode-bar"><button type="button" id="btn-force-article" class="switch-to-article-btn">Open as article</button></div>';
 
     for (const section of listingData.sections) {
       // Section title (can be a link if titleHref exists)
@@ -3710,8 +3969,17 @@
     // Render content
     elements.articleContent.innerHTML = html;
 
+    const forceArticleBtn = elements.articleContent.querySelector('#btn-force-article');
+    if (forceArticleBtn) {
+      forceArticleBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        switchListingToArticle().catch(err => console.warn('Switch to article failed:', err));
+      });
+    }
+
     // Process links - external open in new tab
-    const links = elements.articleContent.querySelectorAll('a[href]');
+    const links = toArray(elements.articleContent.querySelectorAll('a[href]'));
     links.forEach(link => {
       link.addEventListener('click', handleLinkClick);
     });
@@ -3738,7 +4006,9 @@
     if (!totalLength) return;
 
     // querySelectorAll returns ancestors before descendants, so marked containers skip their children
-    for (const block of container.querySelectorAll(blockSelector)) {
+    const blocks = toArray(container.querySelectorAll(blockSelector));
+    for (let i = 0; i < blocks.length; i++) {
+      const block = blocks[i];
       if (block.closest('.inkpages-link-block')) continue;
 
       const textLength = normalizedTextLength(block);
@@ -3746,7 +4016,7 @@
       if (!textLength || textLength > totalLength * 0.5) continue;
 
       let linkLength = 0;
-      block.querySelectorAll('a[href]').forEach(a => {
+      toArray(block.querySelectorAll('a[href]')).forEach(a => {
         linkLength += normalizedTextLength(a);
       });
 

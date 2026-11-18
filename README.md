@@ -105,6 +105,11 @@ What goes into the e-book:
 
 ## Changelog
 
+### v1.7.1
+- Hardened article detection and extraction fallbacks so articles never fall back to link-listing mode on short abstracts, capitalised article metadata, or pages with security-check interstitials
+- Replaced DOM collection iteration across content scripts with plain array slicing to prevent Firefox XrayWrapper iterator warnings
+- Isolated pre-processing, extraction, stitching, and cleanup stages with a clean extraction fallback, added an "Open as article" switch at the top of link-listing pages, and stripped trailing empty-citation table-of-contents false positives, scholarly email-alert cards, and detached back-matter paragraphs
+
 ### v1.7.0
 - Replaced site-specific extraction filters with a layout- and typography-based extractor that restores dropped opening paragraphs, standfirsts, subheadings, and emphasis while filtering out inline promo boxes, embeds, and navigation chrome
 - Placed the reader inside a browser top-layer modal dialog so site cookie and consent overlays no longer cover the page
