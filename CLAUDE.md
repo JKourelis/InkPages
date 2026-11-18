@@ -1,5 +1,9 @@
 # InkPages - Development Context for Claude
 
+## Code Relay (since 2026-11-18)
+
+This repository runs Code Relay. Jiorgos sets the end goal, judges whether a page looks right, and decides releases; coding agents own the implementation and the trials. Before executing a brief, read `PROMPTS/_00_startup_prompt.md` and `PROMPTS/ROADMAP.md` (the `PROMPTS/` channel is gitignored), then this file. Load `relay-execute` to execute a brief and `code-relay` to plan.
+
 ## Project Overview
 
 InkPages is a Firefox extension that provides Safari-like reader mode with paginated, book-style display optimized for e-ink devices (Kindle Scribe, Boox, reMarkable, etc.).

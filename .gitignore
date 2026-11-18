@@ -1,3 +1,23 @@
+# Local tool state
 .Rhistory
 .claude/
+.vscode/
+.DS_Store
+
+# Release builds (uploaded to AMO by hand)
 *.zip
+*.xpi
+web-ext-artifacts/
+
+# Code Relay channel (briefs, reports, progress graph, feedback log)
+PROMPTS/
+
+# Test leftovers; these belong in WORK_ROOT, ignored here in case one lands in the tree
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+geckodriver.log
+ext_test*/
+saved_pages/

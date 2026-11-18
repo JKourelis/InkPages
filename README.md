@@ -105,6 +105,12 @@ What goes into the e-book:
 
 ## Changelog
 
+### v1.7.0
+- Replaced site-specific extraction filters with a layout- and typography-based extractor that restores dropped opening paragraphs, standfirsts, subheadings, and emphasis while filtering out inline promo boxes, embeds, and navigation chrome
+- Placed the reader inside a browser top-layer modal dialog so site cookie and consent overlays no longer cover the page
+- Unfolded collapsed mobile article sections on responsive pages and trimmed scholarly back-matter disclosures and reference lists automatically
+- Improved article-versus-listing detection on section pages and articles framed with related-story sidebars, and enabled toolbar activation on tabs already open before an install or update
+
 ### v1.6.0
 - New true Black theme (Settings → Theme): pure black background with slightly dimmed text, for OLED screens (issue #7)
 - Full screen: a new button in the top bar hides the browser bars while you read, and tapping it again brings them back. Settings → Behavior has a "Full screen" switch that starts full screen on your first tap in the reader. Browsers only allow full screen after a tap and end it whenever a page loads, so it starts on a tap rather than by itself; if you leave full screen yourself, InkPages does not re-enter it on the next tap. Closing the reader leaves full screen too

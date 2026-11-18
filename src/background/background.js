@@ -30,15 +30,22 @@ browserAPI.browserAction.onClicked.addListener(async (tab) => {
   }
 
   try {
-    // Content script is automatically injected via manifest
-    // Just send the toggle message
-    browserAPI.tabs.sendMessage(tab.id, { type: 'TOGGLE_READER' }, (response) => {
-      if (browserAPI.runtime.lastError) {
-        console.error('Failed to send toggle message:', browserAPI.runtime.lastError.message);
-      } else {
-        console.log('Reader mode toggled:', response);
+    // Content script is automatically injected on new pages via manifest; tabs opened
+    // before installing/updating the extension get it injected on first toolbar click
+    try {
+      await browserAPI.tabs.sendMessage(tab.id, { type: 'TOGGLE_READER' });
+    } catch (firstError) {
+      const files = [
+        'src/lib/Readability.js',
+        'src/content/epub.js',
+        'src/content/markdown.js',
+        'src/content/content.js'
+      ];
+      for (const file of files) {
+        await browserAPI.tabs.executeScript(tab.id, { file });
       }
-    });
+      await browserAPI.tabs.sendMessage(tab.id, { type: 'TOGGLE_READER' });
+    }
   } catch (error) {
     console.error('Failed to toggle reader mode:', error);
   }
